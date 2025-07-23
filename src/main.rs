@@ -1,13 +1,18 @@
+use chip8::FrameBuffer;
+use chip8::KeyMatrix;
 use eframe::egui;
-use eframe::egui::mutex::Mutex;
-use std::hint::spin_loop;
-use std::sync::mpsc::{Sender, TryRecvError};
-use std::sync::{Arc, mpsc};
+use eframe::egui::ColorImage;
+use eframe::egui::Key;
+use eframe::egui::TextureHandle;
+use eframe::egui::TextureOptions;
+use std::env;
+use std::process;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
-use std::{env, process, thread};
 
-use chip8::Chip8;
+use chip8::{Chip8, Message};
 
 fn main() -> eframe::Result {
     let args: Vec<_> = env::args().collect();
@@ -25,80 +30,61 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let chip8 = Arc::new(Mutex::new(Chip8::new()));
-    chip8.lock().load_rom(&args[1]).unwrap();
-
     eframe::run_native(
         "chip8",
         native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, chip8)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, &args[1])))),
     )
 }
 
 struct App {
-    frame_buffer: Arc<Mutex<egui::TextureHandle>>,
+    key_matrix: Arc<Mutex<KeyMatrix>>,
+    frame_buffer: Arc<Mutex<FrameBuffer>>,
+
+    texture: TextureHandle,
+
     handle: Option<JoinHandle<()>>,
-    tx: Sender<()>,
+
+    sender: Sender<Message>,
+    receiver: Receiver<Message>,
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext<'_>, chip8: Arc<Mutex<Chip8>>) -> Self {
-        let (tx, rx) = mpsc::channel();
+    fn new(cc: &eframe::CreationContext<'_>, rom_file_path: &str) -> Self {
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
 
         let texture = cc.egui_ctx.load_texture(
             "framebuffer",
-            egui::ColorImage::default(),
-            egui::TextureOptions::NEAREST,
+            ColorImage::default(),
+            TextureOptions::NEAREST,
         );
 
-        let frame_buffer = Arc::new(Mutex::new(texture));
+        let frame_buffer = Arc::new(Mutex::new(FrameBuffer::new()));
+        let key_matrix = Arc::new(Mutex::new(KeyMatrix::new()));
 
-        let frame_buffer_clone = frame_buffer.clone();
-        chip8.lock().set_draw_callback(move |frame_buffer| {
-            let size = [64, 32];
-            let gray_iter = frame_buffer
-                .iter()
-                .flatten()
-                .map(|&v| if v { 255u8 } else { 0u8 });
-            let image = egui::ColorImage::from_gray_iter(size, gray_iter);
-            frame_buffer_clone
-                .lock()
-                .set(image, egui::TextureOptions::NEAREST);
-        });
-
-        let handle = Some(thread::spawn(move || {
-            let tick_rate = Duration::from_millis(2);
-            let tick_60hz = Duration::from_millis(17);
-
-            let mut last_update_60hz = Instant::now();
-
-            while let Err(TryRecvError::Empty) = rx.try_recv() {
-                let now = Instant::now();
-
-                if last_update_60hz.elapsed() >= tick_60hz {
-                    chip8.lock().update_60hz();
-                    last_update_60hz = Instant::now();
-                }
-
-                chip8.lock().tick();
-
-                while now.elapsed() < tick_rate {
-                    spin_loop();
-                }
-            }
-        }));
+        let handle = Some(Chip8::spawn_thread(
+            frame_buffer.clone(),
+            key_matrix.clone(),
+            tx2,
+            rx1,
+            rom_file_path,
+        ));
 
         Self {
             frame_buffer,
+            key_matrix,
+            texture,
             handle,
-            tx,
+            sender: tx1,
+            receiver: rx2,
         }
     }
 }
 
 impl std::ops::Drop for App {
     fn drop(&mut self) {
-        let _ = self.tx.send(());
+        let _ = self.sender.send(Message::Shutdown);
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
         }
@@ -107,12 +93,83 @@ impl std::ops::Drop for App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.input(|i| {
+            for event in &i.raw.events {
+                match event {
+                    egui::Event::Key {
+                        key, pressed: true, ..
+                    } => {
+                        let key_index = get_keymap_index(key);
+
+                        if let Some(key_index) = key_index {
+                            self.key_matrix.lock().unwrap().press(key_index as usize);
+                            let _ = self.sender.send(Message::KeyPressed(key_index));
+                        }
+                    }
+                    egui::Event::Key {
+                        key,
+                        pressed: false,
+                        ..
+                    } => {
+                        let key_index = get_keymap_index(key);
+
+                        if let Some(key_index) = key_index {
+                            self.key_matrix.lock().unwrap().release(key_index as usize);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+
         egui::CentralPanel::default()
             .frame(egui::Frame::default().inner_margin(0))
             .show(ctx, |ui| {
-                ui.image((self.frame_buffer.lock().id(), egui::vec2(640.0, 320.0)))
+                ui.image((self.texture.id(), egui::vec2(640.0, 320.0)))
             });
 
+        if let Ok(Message::Draw) = self.receiver.try_recv() {
+            self.set_texture();
+            ctx.request_repaint();
+        }
+
         ctx.request_repaint();
+    }
+}
+
+impl App {
+    fn set_texture(&mut self) {
+        let frame_buffer = self.frame_buffer.lock().unwrap();
+        let frame_buffer_ref = frame_buffer.get_ref();
+        let gray_iter = frame_buffer_ref
+            .iter()
+            .flat_map(|row| row.iter().map(|&v| if v { 255u8 } else { 0u8 }));
+
+        let size = [64, 32];
+        let image = ColorImage::from_gray_iter(size, gray_iter);
+
+        self.texture.set(image, TextureOptions::NEAREST);
+    }
+}
+
+fn get_keymap_index(key: &Key) -> Option<u8> {
+    match key {
+        Key::Num1 => Some(1),
+        Key::Num2 => Some(2),
+        Key::Num3 => Some(3),
+        Key::Num4 => Some(12),
+        Key::Q => Some(4),
+        Key::W => Some(5),
+        Key::E => Some(6),
+        Key::R => Some(13),
+        Key::A => Some(7),
+        Key::S => Some(8),
+        Key::D => Some(9),
+        Key::F => Some(14),
+        Key::Z => Some(10),
+        Key::X => Some(0),
+        Key::C => Some(11),
+        Key::V => Some(15),
+        _ => None,
     }
 }

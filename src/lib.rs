@@ -1,24 +1,36 @@
 use std::{
     fs::File,
+    hint::spin_loop,
     io::{self, Read},
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, Sender, TryRecvError},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
+#[derive(Debug)]
 enum Instruction {
     Halt,
     Cls,
     Ret,
     Jp { addr: u16 },
+    JpV0 { addr: u16 },
     LdI { addr: u16 },
     LdByte { vx: u8, byte: u8 },
     LdReg { vx: u8, vy: u8 },
     LdRegDt { vx: u8 },
     LdDt { vx: u8 },
     LdFont { vx: u8 },
+    Rnd { vx: u8, byte: u8 },
     AddByte { vx: u8, byte: u8 },
+    AddI { vx: u8 },
     AndReg { vx: u8, vy: u8 },
     XorReg { vx: u8, vy: u8 },
     AddRegCarry { vx: u8, vy: u8 },
     SubReg { vx: u8, vy: u8 },
+    SubNReg { vx: u8, vy: u8 },
     Shr { vx: u8 },
     Shl { vx: u8 },
     OrReg { vx: u8, vy: u8 },
@@ -26,6 +38,9 @@ enum Instruction {
     SeReg { vx: u8, vy: u8 },
     SneByte { vx: u8, byte: u8 },
     SneReg { vx: u8, vy: u8 },
+    Skp { vx: u8 },
+    Sknp { vx: u8 },
+    KeyWait { vx: u8 },
     Store { vx: u8 },
     StoreBcd { vx: u8 },
     Read { vx: u8 },
@@ -34,40 +49,167 @@ enum Instruction {
     Unknown { instruction: u16 },
 }
 
-type FrameBuffer = [[bool; 64]; 32];
-
-type DrawCallback = Option<Box<dyn Fn(&FrameBuffer) + Send>>;
-
-pub struct Chip8 {
-    cpu: Cpu,
-    mem: Memory,
-    frame_buffer: FrameBuffer,
-    draw_callback: DrawCallback,
-    halted: bool,
+pub enum Message {
+    Draw,
+    Shutdown,
+    KeyPressed(u8),
 }
 
-impl Default for Chip8 {
+pub struct KeyMatrix {
+    matrix: [[bool; 4]; 4],
+}
+
+impl Default for KeyMatrix {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Chip8 {
-    pub fn new() -> Chip8 {
+impl KeyMatrix {
+    pub fn new() -> Self {
         Self {
-            cpu: Cpu::new(),
-            mem: Memory::new(),
-            frame_buffer: [[false; 64]; 32],
-            draw_callback: None,
-            halted: false,
+            matrix: [[false; 4]; 4],
         }
     }
 
-    pub fn set_draw_callback<F>(&mut self, callback: F)
-    where
-        F: Fn(&FrameBuffer) + 'static + Send,
-    {
-        self.draw_callback = Some(Box::new(callback))
+    fn is_pressed(&self, index: usize) -> bool {
+        if index > 15 {
+            return false;
+        }
+
+        let x = index % 4;
+        let y = index / 4;
+
+        self.matrix[y][x]
+    }
+
+    pub fn press(&mut self, index: usize) {
+        if index > 15 {
+            return;
+        }
+
+        let x = index % 4;
+        let y = index / 4;
+
+        self.matrix[y][x] = true;
+    }
+
+    pub fn release(&mut self, index: usize) {
+        if index > 15 {
+            return;
+        }
+
+        let x = index % 4;
+        let y = index / 4;
+
+        self.matrix[y][x] = false;
+    }
+}
+
+pub struct FrameBuffer {
+    buffer: [[bool; 64]; 32],
+}
+
+impl Default for FrameBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FrameBuffer {
+    pub fn new() -> Self {
+        Self {
+            buffer: [[false; 64]; 32],
+        }
+    }
+
+    fn xor(&mut self, x: usize, y: usize, value: bool) -> bool {
+        let old_val = self.buffer[y][x];
+        let new_val = old_val ^ value;
+
+        self.buffer[y][x] = new_val;
+
+        old_val && !new_val
+    }
+
+    pub fn get_ref(&self) -> &[[bool; 64]; 32] {
+        &self.buffer
+    }
+}
+
+pub struct Chip8 {
+    cpu: Cpu,
+    mem: Memory,
+    frame_buffer: Arc<Mutex<FrameBuffer>>,
+
+    key_matrix: Arc<Mutex<KeyMatrix>>,
+    halted: bool,
+    shutdown: bool,
+
+    sender: Sender<Message>,
+    receiver: Receiver<Message>,
+}
+
+impl Chip8 {
+    pub fn new(
+        frame_buffer: Arc<Mutex<FrameBuffer>>,
+        key_matrix: Arc<Mutex<KeyMatrix>>,
+        sender: Sender<Message>,
+        receiver: Receiver<Message>,
+    ) -> Chip8 {
+        Self {
+            cpu: Cpu::new(),
+            mem: Memory::new(),
+            halted: false,
+            shutdown: false,
+            frame_buffer,
+            key_matrix,
+            sender,
+            receiver,
+        }
+    }
+
+    pub fn spawn_thread(
+        frame_buffer: Arc<Mutex<FrameBuffer>>,
+        key_matrix: Arc<Mutex<KeyMatrix>>,
+        sender: Sender<Message>,
+        receiver: Receiver<Message>,
+        rom_file_path: &str,
+    ) -> JoinHandle<()> {
+        let mut chip8 = Chip8::new(frame_buffer, key_matrix, sender, receiver);
+        chip8.load_rom(rom_file_path).unwrap();
+
+        thread::spawn(move || {
+            let tick_rate = Duration::from_millis(2);
+            let tick_60hz = Duration::from_millis(17);
+
+            let mut last_update_60hz = Instant::now();
+
+            loop {
+                match chip8.receiver.try_recv() {
+                    Err(TryRecvError::Disconnected) => break,
+                    Ok(Message::Shutdown) => chip8.shutdown = true,
+                    _ => {}
+                }
+
+                if chip8.shutdown {
+                    break;
+                }
+
+                let now = Instant::now();
+
+                if last_update_60hz.elapsed() >= tick_60hz {
+                    chip8.update_60hz();
+                    last_update_60hz = Instant::now();
+                }
+
+                chip8.tick();
+
+                while now.elapsed() < tick_rate {
+                    spin_loop();
+                }
+            }
+        })
     }
 
     pub fn load_rom(&mut self, file_name: &str) -> io::Result<()> {
@@ -94,6 +236,7 @@ impl Chip8 {
 
         let instruction = self.fetch();
         let decoded_instruction = Self::decode(instruction);
+        // println!("Current Instruction: {decoded_instruction:?}");
         self.execute(decoded_instruction);
     }
 
@@ -121,6 +264,10 @@ impl Chip8 {
             let addr = instruction & 0xFFF;
 
             Instruction::Jp { addr }
+        } else if instruction >> 12 == 0xB {
+            let addr = instruction & 0xFFF;
+
+            Instruction::JpV0 { addr }
         } else if instruction >> 12 == 0x2 {
             let addr = instruction & 0xFFF;
 
@@ -135,6 +282,10 @@ impl Chip8 {
             let byte = (instruction & 0xFF) as u8;
 
             Instruction::AddByte { vx, byte }
+        } else if instruction >> 12 == 0xF && instruction & 0xFF == 0x1E {
+            let vx = ((instruction >> 8) & 0x0F) as u8;
+
+            Instruction::AddI { vx }
         } else if instruction >> 12 == 0xA {
             let addr = instruction & 0xFFF;
 
@@ -155,6 +306,11 @@ impl Chip8 {
             let byte = (instruction & 0xFF) as u8;
 
             Instruction::SneByte { vx, byte }
+        } else if instruction >> 12 == 0xC {
+            let vx = ((instruction >> 8) & 0x0F) as u8;
+            let byte = (instruction & 0xFF) as u8;
+
+            Instruction::Rnd { vx, byte }
         } else if instruction >> 12 == 0x5 && instruction & 0x0F == 0x0 {
             let vx = ((instruction >> 8) & 0x0F) as u8;
             let vy = ((instruction >> 4) & 0x0F) as u8;
@@ -199,10 +355,27 @@ impl Chip8 {
             let vx = ((instruction >> 8) & 0x0F) as u8;
 
             Instruction::Shr { vx }
+        } else if instruction >> 12 == 0x8 && instruction & 0x0F == 0x7 {
+            let vx = ((instruction >> 8) & 0x0F) as u8;
+            let vy = ((instruction >> 4) & 0x0F) as u8;
+
+            Instruction::SubNReg { vx, vy }
         } else if instruction >> 12 == 0x8 && instruction & 0x0F == 0xE {
             let vx = ((instruction >> 8) & 0x0F) as u8;
 
             Instruction::Shl { vx }
+        } else if instruction >> 12 == 0xE && instruction & 0xFF == 0x9E {
+            let vx = ((instruction >> 8) & 0x0F) as u8;
+
+            Instruction::Skp { vx }
+        } else if instruction >> 12 == 0xE && instruction & 0xFF == 0xA1 {
+            let vx = ((instruction >> 8) & 0x0F) as u8;
+
+            Instruction::Sknp { vx }
+        } else if instruction >> 12 == 0xF && instruction & 0xFF == 0x0A {
+            let vx = ((instruction >> 8) & 0x0F) as u8;
+
+            Instruction::KeyWait { vx }
         } else if instruction >> 12 == 0xF && instruction & 0xFF == 0x55 {
             let vx = ((instruction >> 8) & 0x0F) as u8;
 
@@ -236,15 +409,16 @@ impl Chip8 {
         match instruction {
             Instruction::Halt => self.halted = true,
             Instruction::Cls => {
-                self.frame_buffer = [[false; 64]; 32];
-
-                if let Some(ref draw_callback) = self.draw_callback {
-                    draw_callback(&self.frame_buffer);
+                {
+                    let mut frame_buffer = self.frame_buffer.lock().unwrap();
+                    *frame_buffer = FrameBuffer::new();
                 }
+
+                let _ = self.sender.send(Message::Draw);
             }
             Instruction::Ret => {
                 assert!(self.cpu.sp > 0);
-                self.cpu.sp = self.cpu.sp.saturating_sub(1);
+                self.cpu.sp -= 1;
                 self.cpu.pc = self.cpu.stack[self.cpu.sp as usize];
             }
             Instruction::Call { addr } => {
@@ -253,6 +427,10 @@ impl Chip8 {
                 self.cpu.pc = addr;
             }
             Instruction::Jp { addr } => self.cpu.pc = addr,
+            Instruction::JpV0 { addr } => {
+                let v0_val = self.cpu.v[0];
+                self.cpu.pc = addr + v0_val as u16;
+            }
             Instruction::LdI { addr } => self.cpu.i = addr,
             Instruction::LdByte { vx, byte } => self.cpu.v[vx as usize] = byte,
             Instruction::AddByte { vx, byte } => {
@@ -266,25 +444,29 @@ impl Chip8 {
                     sprite_buffer.push(self.mem.get_byte(addr));
                 }
 
-                let x = self.cpu.v[vx as usize];
-                let y = self.cpu.v[vy as usize];
+                let x = self.cpu.v[vx as usize] % 64;
+                let y = self.cpu.v[vy as usize] % 32;
 
-                for (cy, byte) in sprite_buffer
-                    .iter()
-                    .enumerate()
-                    .map(|(i, b)| (y as usize + i, b))
-                {
-                    for bit_index in 0..8 {
-                        let fx = ((x + bit_index) % 64) as usize;
-                        let fy = (cy) % 32;
+                self.cpu.v[0xF] = 0;
 
-                        self.frame_buffer[fy][fx] ^= ((byte >> (7 - bit_index)) & 1) == 1;
+                for cy in y..(y + nibble).min(32) {
+                    for cx in x..(x + 8).min(64) {
+                        let byte_index = cy - y;
+                        let bit_offset = cx - x;
+
+                        let turned_off = self.frame_buffer.lock().unwrap().xor(
+                            cx as usize,
+                            cy as usize,
+                            ((sprite_buffer[byte_index as usize] >> (7 - bit_offset)) & 1) == 1,
+                        );
+
+                        if turned_off {
+                            self.cpu.v[0xF] = 1;
+                        }
                     }
                 }
 
-                if let Some(ref draw_callback) = self.draw_callback {
-                    draw_callback(&self.frame_buffer);
-                }
+                let _ = self.sender.send(Message::Draw);
             }
             Instruction::SeByte { vx, byte } => {
                 if self.cpu.v[vx as usize] == byte {
@@ -311,55 +493,81 @@ impl Chip8 {
                 }
             }
             Instruction::LdReg { vx, vy } => self.cpu.v[vx as usize] = self.cpu.v[vy as usize],
-            Instruction::OrReg { vx, vy } => self.cpu.v[vx as usize] |= self.cpu.v[vy as usize],
-            Instruction::AndReg { vx, vy } => self.cpu.v[vx as usize] &= self.cpu.v[vy as usize],
-            Instruction::XorReg { vx, vy } => self.cpu.v[vx as usize] ^= self.cpu.v[vy as usize],
+            Instruction::OrReg { vx, vy } => {
+                self.cpu.v[vx as usize] |= self.cpu.v[vy as usize];
+                self.cpu.v[0xF] = 0;
+            }
+            Instruction::AndReg { vx, vy } => {
+                self.cpu.v[vx as usize] &= self.cpu.v[vy as usize];
+                self.cpu.v[0xF] = 0;
+            }
+            Instruction::XorReg { vx, vy } => {
+                self.cpu.v[vx as usize] ^= self.cpu.v[vy as usize];
+                self.cpu.v[0xF] = 0;
+            }
             Instruction::AddRegCarry { vx, vy } => {
                 let (result, overflow) =
                     self.cpu.v[vx as usize].overflowing_add(self.cpu.v[vy as usize]);
+
+                self.cpu.v[vx as usize] = result;
 
                 if overflow {
                     self.cpu.v[0xF] = 1;
                 } else {
                     self.cpu.v[0xF] = 0;
                 }
-
-                self.cpu.v[vx as usize] = result;
             }
             Instruction::SubReg { vx, vy } => {
                 let (result, borrow) =
                     self.cpu.v[vx as usize].overflowing_sub(self.cpu.v[vy as usize]);
+
+                self.cpu.v[vx as usize] = result;
 
                 if !borrow {
                     self.cpu.v[0xF] = 1;
                 } else {
                     self.cpu.v[0xF] = 0;
                 }
+            }
+            Instruction::SubNReg { vx, vy } => {
+                let (result, borrow) =
+                    self.cpu.v[vy as usize].overflowing_sub(self.cpu.v[vx as usize]);
 
                 self.cpu.v[vx as usize] = result;
+
+                if !borrow {
+                    self.cpu.v[0xF] = 1;
+                } else {
+                    self.cpu.v[0xF] = 0;
+                }
             }
             Instruction::Shr { vx } => {
                 let vx_val = self.cpu.v[vx as usize];
+
+                self.cpu.v[vx as usize] = vx_val >> 1;
 
                 if vx_val & 0x1 == 0x1 {
                     self.cpu.v[0xF] = 1
                 } else {
                     self.cpu.v[0xF] = 0
                 }
-
-                self.cpu.v[vx as usize] = vx_val >> 1;
             }
             Instruction::Shl { vx } => {
                 let vx_val = self.cpu.v[vx as usize];
+
+                self.cpu.v[vx as usize] = vx_val << 1;
 
                 if vx_val & 0x80 == 0x80 {
                     self.cpu.v[0xF] = 1
                 } else {
                     self.cpu.v[0xF] = 0
                 }
-
-                self.cpu.v[vx as usize] = vx_val << 1;
             }
+            Instruction::KeyWait { vx } => match self.receiver.recv() {
+                Ok(Message::KeyPressed(val)) => self.cpu.v[vx as usize] = val,
+                Ok(Message::Shutdown) => self.shutdown = true,
+                _ => {}
+            },
             Instruction::Store { vx } => {
                 let i = self.cpu.i;
 
@@ -392,6 +600,23 @@ impl Chip8 {
                 self.cpu.i = FONT_START_ADDR + self.cpu.v[vx as usize] as u16 * 5
             }
             Instruction::LdDt { vx } => self.cpu.dt = self.cpu.v[vx as usize],
+            Instruction::Rnd { vx, byte } => {
+                let rand_val = rand::random::<u8>();
+                self.cpu.v[vx as usize] = rand_val & byte;
+            }
+            Instruction::Skp { vx } => {
+                let vx_val = self.cpu.v[vx as usize];
+                if self.key_matrix.lock().unwrap().is_pressed(vx_val as usize) {
+                    self.cpu.pc += 2
+                }
+            }
+            Instruction::Sknp { vx } => {
+                let vx_val = self.cpu.v[vx as usize];
+                if !self.key_matrix.lock().unwrap().is_pressed(vx_val as usize) {
+                    self.cpu.pc += 2
+                }
+            }
+            Instruction::AddI { vx } => self.cpu.i += self.cpu.v[vx as usize] as u16,
             Instruction::Unknown { instruction } => {
                 println!("unknown instruction: 0x{instruction:X}");
             }
