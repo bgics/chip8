@@ -1,5 +1,3 @@
-use chip8::FrameBuffer;
-use chip8::KeyMatrix;
 use eframe::egui;
 use eframe::egui::ColorImage;
 use eframe::egui::Key;
@@ -12,7 +10,11 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
-use chip8::{Chip8, Message};
+// TODO: Make the code more robust (gracefully handle all errors)
+// TODO: Implement pause, loading rom, keymap config (via gui)
+// TODO: Add tests
+
+use chip8::{Chip8, FrameBuffer, KeyMatrix, Message};
 
 fn main() -> eframe::Result {
     let args: Vec<_> = env::args().collect();
@@ -45,7 +47,7 @@ struct App {
 
     handle: Option<JoinHandle<()>>,
 
-    sender: Sender<Message>,
+    sender: Option<Sender<Message>>,
     receiver: Receiver<Message>,
 }
 
@@ -76,7 +78,7 @@ impl App {
             key_matrix,
             texture,
             handle,
-            sender: tx1,
+            sender: Some(tx1),
             receiver: rx2,
         }
     }
@@ -84,7 +86,10 @@ impl App {
 
 impl std::ops::Drop for App {
     fn drop(&mut self) {
-        let _ = self.sender.send(Message::Shutdown);
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(Message::Shutdown);
+        }
+
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
         }
@@ -103,7 +108,9 @@ impl eframe::App for App {
 
                         if let Some(key_index) = key_index {
                             self.key_matrix.lock().unwrap().press(key_index as usize);
-                            let _ = self.sender.send(Message::KeyPressed(key_index));
+                            if let Some(ref sender) = self.sender {
+                                let _ = sender.send(Message::KeyPressed(key_index));
+                            }
                         }
                     }
                     egui::Event::Key {
