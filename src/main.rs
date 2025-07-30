@@ -1,6 +1,7 @@
 use eframe::egui;
 use eframe::egui::ColorImage;
 use eframe::egui::Key;
+use eframe::egui::MenuBar;
 use eframe::egui::TextureHandle;
 use eframe::egui::TextureOptions;
 use std::env;
@@ -82,9 +83,48 @@ impl App {
             receiver: rx2,
         }
     }
+
+    fn set_new_handle(&mut self, rom_file_path: &str) {
+        if let Some(handle) = self.handle.take() {
+            if let Some(sender) = self.sender.take() {
+                let _ = sender.send(Message::Shutdown);
+            }
+
+            handle.join().unwrap()
+        }
+
+        let frame_buffer = Arc::new(Mutex::new(FrameBuffer::new()));
+        let key_matrix = Arc::new(Mutex::new(KeyMatrix::new()));
+
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
+
+        self.handle = Some(Chip8::spawn_thread(
+            frame_buffer.clone(),
+            key_matrix.clone(),
+            tx2,
+            rx1,
+            rom_file_path,
+        ));
+        self.sender = Some(tx1);
+        self.receiver = rx2;
+    }
+
+    fn set_texture(&mut self) {
+        let frame_buffer = self.frame_buffer.lock().unwrap();
+        let frame_buffer_ref = frame_buffer.get_ref();
+        let gray_iter = frame_buffer_ref
+            .iter()
+            .flat_map(|row| row.iter().map(|&v| if v { 255u8 } else { 0u8 }));
+
+        let size = [64, 32];
+        let image = ColorImage::from_gray_iter(size, gray_iter);
+
+        self.texture.set(image, TextureOptions::NEAREST);
+    }
 }
 
-impl std::ops::Drop for App {
+impl Drop for App {
     fn drop(&mut self) {
         if let Some(sender) = self.sender.take() {
             let _ = sender.send(Message::Shutdown);
@@ -132,6 +172,13 @@ impl eframe::App for App {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().inner_margin(0))
             .show(ctx, |ui| {
+                MenuBar::new().ui(ui, |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Load ROM").clicked() {
+                            println!("load a rom")
+                        }
+                    });
+                });
                 ui.image((self.texture.id(), egui::vec2(640.0, 320.0)))
             });
 
@@ -141,21 +188,6 @@ impl eframe::App for App {
         }
 
         ctx.request_repaint();
-    }
-}
-
-impl App {
-    fn set_texture(&mut self) {
-        let frame_buffer = self.frame_buffer.lock().unwrap();
-        let frame_buffer_ref = frame_buffer.get_ref();
-        let gray_iter = frame_buffer_ref
-            .iter()
-            .flat_map(|row| row.iter().map(|&v| if v { 255u8 } else { 0u8 }));
-
-        let size = [64, 32];
-        let image = ColorImage::from_gray_iter(size, gray_iter);
-
-        self.texture.set(image, TextureOptions::NEAREST);
     }
 }
 
