@@ -15,7 +15,8 @@
           inherit system overlays;
         };
 
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        toolchainFile = ./rust-toolchain.toml;
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile toolchainFile;
       in
       {
         devShells = {
