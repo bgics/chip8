@@ -15,8 +15,15 @@
           inherit system overlays;
         };
 
-        toolchainFile = ./rust-toolchain.toml;
-        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile toolchainFile;
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-analyzer" "rust-src" ];
+        };
+
+        libPath = with pkgs; lib.makeLibraryPath [
+          libGL
+          libxkbcommon
+          wayland
+        ];
       in
       {
         devShells = {
@@ -24,6 +31,7 @@
             buildInputs = [
               rustToolchain
             ];
+            LD_LIBRARY_PATH = libPath;
           };
         };
       }
