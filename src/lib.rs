@@ -13,9 +13,12 @@ use std::{
 pub mod cpu;
 pub mod error;
 pub mod frame_buffer;
+pub mod handle;
 pub mod instruction;
 pub mod key_matrix;
 pub mod memory;
+
+pub mod app;
 
 use cpu::Cpu;
 use error::Result;
@@ -49,7 +52,7 @@ impl Chip8 {
         key_matrix: Arc<Mutex<KeyMatrix>>,
         sender: Sender<Message>,
         receiver: Receiver<Message>,
-    ) -> Chip8 {
+    ) -> Self {
         Self {
             cpu: Cpu::new(),
             memory: Memory::new(),
@@ -61,7 +64,7 @@ impl Chip8 {
         }
     }
 
-    pub fn spawn_thread(
+    pub fn new_thread_handle(
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
         sender: Sender<Message>,
