@@ -1,17 +1,24 @@
-use std::sync::{Arc, Mutex, mpsc};
+use std::{
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, Sender},
+    },
+    thread::{self, JoinHandle},
+};
 
 use eframe::{
     Frame,
-    egui::{
-        self, ColorImage, Context, Key, MenuBar, TextureHandle, TextureOptions, TopBottomPanel,
-    },
+    egui::{self, ColorImage, Context, Key, MenuBar, TextureHandle, TextureOptions},
 };
 
-use crate::{FrameBuffer, KeyMatrix, handle::Chip8Handle};
+use crate::{FrameBuffer, KeyMatrix, Message, handle::Chip8Handle};
 
 pub struct App {
     texture: TextureHandle,
     handle: Option<Chip8Handle>,
+    file_picker_handle: Option<JoinHandle<()>>,
+    file_picker_channel: (Sender<Message>, Receiver<Message>),
+    open_file_picker: bool,
 }
 
 impl App {
@@ -24,6 +31,9 @@ impl App {
         Self {
             texture,
             handle: None,
+            file_picker_handle: None,
+            file_picker_channel: mpsc::channel(),
+            open_file_picker: false,
         }
     }
 
@@ -52,6 +62,10 @@ impl Drop for App {
     fn drop(&mut self) {
         if let Some(mut handle) = self.handle.take() {
             handle.shutdown();
+        }
+
+        if let Some(handle) = self.file_picker_handle.take() {
+            handle.join().unwrap();
         }
     }
 }
@@ -90,13 +104,16 @@ impl eframe::App for App {
             }
         });
 
-        TopBottomPanel::top("panel").show(ctx, |ui| {
+        egui::TopBottomPanel::top("panel").show(ctx, |ui| {
             MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Load ROM").clicked() {
-                        // TODO: Open file picker
-                        // TODO: Load the actual ROM
-                        self.set_new_handle("/home/bhuvansh/Desktop/chip8/rom/hidden.ch8");
+                        if let Some(ref handle) = self.handle {
+                            handle.pause();
+                        }
+                        if self.file_picker_handle.is_none() {
+                            self.open_file_picker = true;
+                        }
                     }
                 });
             });
@@ -111,6 +128,40 @@ impl eframe::App for App {
                     |ui| ui.image((self.texture.id(), egui::vec2(640.0, 320.0))),
                 )
             });
+
+        if self.open_file_picker {
+            self.open_file_picker = false;
+            let sender = self.file_picker_channel.0.clone();
+
+            self.file_picker_handle = Some(thread::spawn(move || {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    let _ = sender.send(Message::NewROM(path.display().to_string()));
+                } else {
+                    let _ = sender.send(Message::NoFileFound);
+                }
+            }));
+        }
+
+        match self.file_picker_channel.1.try_recv() {
+            Ok(Message::NewROM(path)) => {
+                self.set_new_handle(&path);
+                if let Some(ref handle) = self.handle {
+                    handle.unpause();
+                }
+                if let Some(handle) = self.file_picker_handle.take() {
+                    handle.join().unwrap();
+                }
+            }
+            Ok(Message::NoFileFound) => {
+                if let Some(ref handle) = self.handle {
+                    handle.unpause();
+                }
+                if let Some(handle) = self.file_picker_handle.take() {
+                    handle.join().unwrap();
+                }
+            }
+            _ => {}
+        }
 
         if let Some(ref mut handle) = self.handle {
             if handle.check_draw_message() {

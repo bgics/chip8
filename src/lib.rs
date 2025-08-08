@@ -30,7 +30,11 @@ pub use key_matrix::KeyMatrix;
 pub enum Message {
     Draw,
     Shutdown,
+    Pause,
+    Unpause,
     KeyPressed(u8),
+    NewROM(String),
+    NoFileFound,
 }
 
 pub struct Chip8 {
@@ -40,7 +44,7 @@ pub struct Chip8 {
     frame_buffer: Arc<Mutex<FrameBuffer>>,
     key_matrix: Arc<Mutex<KeyMatrix>>,
 
-    shutdown: bool,
+    paused: bool,
 
     sender: Sender<Message>,
     receiver: Receiver<Message>,
@@ -56,7 +60,7 @@ impl Chip8 {
         Self {
             cpu: Cpu::new(),
             memory: Memory::new(),
-            shutdown: false,
+            paused: false,
             frame_buffer,
             key_matrix,
             sender,
@@ -79,29 +83,39 @@ impl Chip8 {
             let tick_60hz = Duration::from_millis(17);
 
             let mut last_update_60hz = Instant::now();
+            let mut pause_delta: Duration = Duration::ZERO;
 
             loop {
                 match chip8.receiver.try_recv() {
-                    Err(TryRecvError::Disconnected) => break,
-                    Ok(Message::Shutdown) => chip8.shutdown = true,
+                    Ok(Message::Shutdown) | Err(TryRecvError::Disconnected) => break,
+                    Ok(Message::Pause) => {
+                        pause_delta = Instant::now() - last_update_60hz;
+                        chip8.paused = true;
+                    }
+                    Ok(Message::Unpause) => {
+                        last_update_60hz = Instant::now() - pause_delta;
+                        chip8.paused = false;
+                    }
                     _ => {}
                 }
 
-                if chip8.shutdown {
-                    break;
-                }
+                if !chip8.paused {
+                    let now = Instant::now();
 
-                let now = Instant::now();
+                    if last_update_60hz.elapsed() >= tick_60hz {
+                        chip8.tick_60hz();
+                        last_update_60hz = Instant::now();
+                    }
 
-                if last_update_60hz.elapsed() >= tick_60hz {
-                    chip8.tick_60hz();
-                    last_update_60hz = Instant::now();
-                }
+                    match chip8.tick() {
+                        Ok(Some(Message::Shutdown)) => break,
+                        Ok(Some(Message::Pause)) => todo!(),
+                        _ => {}
+                    }
 
-                let _ = chip8.tick();
-
-                while now.elapsed() < tick_rate {
-                    spin_loop();
+                    while now.elapsed() < tick_rate {
+                        spin_loop();
+                    }
                 }
             }
         })
@@ -122,7 +136,7 @@ impl Chip8 {
         self.cpu.tick_60hz();
     }
 
-    pub fn tick(&mut self) -> Result<()> {
+    pub fn tick(&mut self) -> Result<Option<Message>> {
         self.cpu.tick(
             &mut self.memory,
             self.frame_buffer.clone(),
