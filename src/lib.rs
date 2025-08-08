@@ -27,6 +27,7 @@ use memory::Memory;
 pub use frame_buffer::FrameBuffer;
 pub use key_matrix::KeyMatrix;
 
+#[derive(Debug)]
 pub enum Message {
     Draw,
     Shutdown,
@@ -99,6 +100,8 @@ impl Chip8 {
                     _ => {}
                 }
 
+                // TODO(BUG): there is some issue with pausing when the game is waiting for input
+                // to see this try rps.ch8 and open load rom picker when it is waiting for input then close the picker
                 if !chip8.paused {
                     let now = Instant::now();
 
@@ -109,7 +112,10 @@ impl Chip8 {
 
                     match chip8.tick() {
                         Ok(Some(Message::Shutdown)) => break,
-                        Ok(Some(Message::Pause)) => todo!(),
+                        Ok(Some(Message::Pause)) => {
+                            pause_delta = Instant::now() - last_update_60hz;
+                            chip8.paused = true;
+                        }
                         _ => {}
                     }
 
