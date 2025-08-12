@@ -2,7 +2,14 @@ use chip8::app::App;
 use eframe::egui;
 
 // TODO: Make the code more robust (gracefully handle all errors)
+
+// Essential Features
 // TODO: Implement pause, loading rom, keymap config (via gui)
+// Completed -> { pause, loading ram }
+
+// Non Essential Features
+// TODO: Implement load/save state, color config (via gui), kbd shortcuts, cpu speed control, output sizing options
+
 // TODO: Add tests
 
 fn main() -> eframe::Result {
