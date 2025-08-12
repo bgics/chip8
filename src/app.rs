@@ -1,24 +1,26 @@
-use std::{
-    sync::{
-        Arc, Mutex,
-        mpsc::{self, Receiver, Sender},
-    },
-    thread::{self, JoinHandle},
-};
+use std::sync::{Arc, Mutex};
 
 use eframe::{
     Frame,
     egui::{self, ColorImage, Context, Key, MenuBar, TextureHandle, TextureOptions},
 };
 
-use crate::{FrameBuffer, KeyMatrix, Message, handle::Chip8Handle};
+use crate::{
+    file_picker::{FilePicker, FilePickerResult},
+    frame_buffer::FrameBuffer,
+    handle::Chip8Handle,
+    key_matrix::KeyMatrix,
+};
 
 pub struct App {
     texture: TextureHandle,
+
+    frame_buffer: Arc<Mutex<FrameBuffer>>,
+    key_matrix: Arc<Mutex<KeyMatrix>>,
+
     handle: Option<Chip8Handle>,
-    file_picker_handle: Option<JoinHandle<()>>,
-    file_picker_channel: (Sender<Message>, Receiver<Message>),
-    open_file_picker: bool,
+
+    file_picker: FilePicker,
 }
 
 impl App {
@@ -28,44 +30,68 @@ impl App {
             ColorImage::default(),
             TextureOptions::NEAREST,
         );
-        Self {
-            texture,
-            handle: None,
-            file_picker_handle: None,
-            file_picker_channel: mpsc::channel(),
-            open_file_picker: false,
-        }
-    }
-
-    fn set_new_handle(&mut self, rom_file_path: &str) {
-        if let Some(mut handle) = self.handle.take() {
-            handle.shutdown();
-        }
 
         let frame_buffer = Arc::new(Mutex::new(FrameBuffer::new()));
         let key_matrix = Arc::new(Mutex::new(KeyMatrix::new()));
 
-        let channel_pair_1 = mpsc::channel();
-        let channel_pair_2 = mpsc::channel();
+        Self {
+            texture,
+            frame_buffer,
+            key_matrix,
+            handle: None,
+            file_picker: FilePicker::new(),
+        }
+    }
+
+    fn set_new_handle(&mut self, rom_file_path: &str) {
+        let _ = self.handle.take();
+
+        let frame_buffer = Arc::new(Mutex::new(FrameBuffer::new()));
+        let key_matrix = Arc::new(Mutex::new(KeyMatrix::new()));
 
         self.handle = Some(Chip8Handle::new(
-            key_matrix,
-            frame_buffer,
-            channel_pair_1,
-            channel_pair_2,
+            key_matrix.clone(),
+            frame_buffer.clone(),
             rom_file_path,
-        ))
+        ));
+
+        self.frame_buffer = frame_buffer;
+        self.key_matrix = key_matrix;
     }
-}
 
-impl Drop for App {
-    fn drop(&mut self) {
-        if let Some(mut handle) = self.handle.take() {
-            handle.shutdown();
+    fn set_texture(&mut self) {
+        let frame_buffer = self.frame_buffer.lock().unwrap();
+        let frame_buffer_ref = frame_buffer.get_ref();
+        let gray_iter = frame_buffer_ref
+            .iter()
+            .flat_map(|row| row.iter().map(|&v| if v { 255u8 } else { 0u8 }));
+
+        let size = [64, 32];
+        let image = ColorImage::from_gray_iter(size, gray_iter);
+
+        self.texture.set(image, TextureOptions::NEAREST);
+    }
+
+    fn press_key(&self, key_index: u8) {
+        self.key_matrix.lock().unwrap().press(key_index as usize);
+    }
+
+    fn release_key(&self, key_index: u8) {
+        self.key_matrix.lock().unwrap().release(key_index as usize);
+        if let Some(ref handle) = self.handle {
+            handle.send_key_release_message(key_index);
         }
+    }
 
-        if let Some(handle) = self.file_picker_handle.take() {
-            handle.join().unwrap();
+    fn pause(&self) {
+        if let Some(ref handle) = self.handle {
+            handle.send_pause_message();
+        }
+    }
+
+    fn unpause(&self) {
+        if let Some(ref handle) = self.handle {
+            handle.send_unpause_message();
         }
     }
 }
@@ -78,12 +104,10 @@ impl eframe::App for App {
                     egui::Event::Key {
                         key, pressed: true, ..
                     } => {
-                        if let Some(ref mut handle) = self.handle {
-                            let key_index = get_keymap_index(key);
+                        let key_index = get_keymap_index(key);
 
-                            if let Some(key_index) = key_index {
-                                handle.press_key(key_index);
-                            }
+                        if let Some(key_index) = key_index {
+                            self.press_key(key_index);
                         }
                     }
                     egui::Event::Key {
@@ -91,12 +115,10 @@ impl eframe::App for App {
                         pressed: false,
                         ..
                     } => {
-                        if let Some(ref mut handle) = self.handle {
-                            let key_index = get_keymap_index(key);
+                        let key_index = get_keymap_index(key);
 
-                            if let Some(key_index) = key_index {
-                                handle.release_key(key_index);
-                            }
+                        if let Some(key_index) = key_index {
+                            self.release_key(key_index);
                         }
                     }
                     _ => {}
@@ -108,12 +130,8 @@ impl eframe::App for App {
             MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Load ROM").clicked() {
-                        if let Some(ref handle) = self.handle {
-                            handle.pause();
-                        }
-                        if self.file_picker_handle.is_none() {
-                            self.open_file_picker = true;
-                        }
+                        self.pause();
+                        self.file_picker.open_file_picker();
                     }
                 });
             });
@@ -129,43 +147,20 @@ impl eframe::App for App {
                 )
             });
 
-        if self.open_file_picker {
-            self.open_file_picker = false;
-            let sender = self.file_picker_channel.0.clone();
-
-            self.file_picker_handle = Some(thread::spawn(move || {
-                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    let _ = sender.send(Message::NewROM(path.display().to_string()));
-                } else {
-                    let _ = sender.send(Message::NoFileFound);
-                }
-            }));
-        }
-
-        match self.file_picker_channel.1.try_recv() {
-            Ok(Message::NewROM(path)) => {
+        match self.file_picker.check_file_picker() {
+            Some(FilePickerResult::Path(path)) => {
                 self.set_new_handle(&path);
-                if let Some(ref handle) = self.handle {
-                    handle.unpause();
-                }
-                if let Some(handle) = self.file_picker_handle.take() {
-                    handle.join().unwrap();
-                }
+                self.unpause();
             }
-            Ok(Message::NoFileFound) => {
-                if let Some(ref handle) = self.handle {
-                    handle.unpause();
-                }
-                if let Some(handle) = self.file_picker_handle.take() {
-                    handle.join().unwrap();
-                }
+            Some(FilePickerResult::None) => {
+                self.unpause();
             }
-            _ => {}
+            None => {}
         }
 
-        if let Some(ref mut handle) = self.handle {
+        if let Some(ref handle) = self.handle {
             if handle.check_draw_message() {
-                handle.set_texture(self.texture.clone());
+                self.set_texture();
                 ctx.request_repaint();
             }
         }

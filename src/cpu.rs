@@ -1,10 +1,10 @@
-use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::error::{Chip8Error, Result};
+use crate::frame_buffer::FrameBuffer;
 use crate::instruction::Instruction;
+use crate::key_matrix::KeyMatrix;
 use crate::memory::{FONT_START_ADDR, Memory, ROM_START_ADDR};
-use crate::{FrameBuffer, KeyMatrix, Message};
 
 pub struct Cpu {
     v: [u8; 16],
@@ -50,17 +50,15 @@ impl Cpu {
         memory: &mut Memory,
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
-        sender: Sender<Message>,
-        recv_message: Option<Message>,
-    ) -> Result<()> {
+        last_released_key: Option<u8>,
+    ) -> Result<bool> {
         let instruction = self.get_next_instruction(memory)?;
         self.execute(
             instruction,
             memory,
             frame_buffer,
             key_matrix,
-            sender,
-            recv_message,
+            last_released_key,
         )
     }
 
@@ -70,9 +68,8 @@ impl Cpu {
         memory: &mut Memory,
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
-        sender: Sender<Message>,
-        recv_message: Option<Message>,
-    ) -> Result<()> {
+        last_released_key: Option<u8>,
+    ) -> Result<bool> {
         match instruction {
             Instruction::Cls => {
                 {
@@ -80,7 +77,7 @@ impl Cpu {
                     *frame_buffer = FrameBuffer::new();
                 }
 
-                let _ = sender.send(Message::Draw);
+                return Ok(true);
             }
             Instruction::Ret => {
                 if self.sp == 0 {
@@ -141,7 +138,7 @@ impl Cpu {
                     }
                 }
 
-                let _ = sender.send(Message::Draw);
+                return Ok(true);
             }
             Instruction::SeByte { vx, byte } => {
                 if self.v[vx as usize] == byte {
@@ -222,8 +219,8 @@ impl Cpu {
                     self.v[0xF] = 0
                 }
             }
-            Instruction::KeyWait { vx } => match recv_message {
-                Some(Message::KeyReleased(val)) => {
+            Instruction::KeyWait { vx } => match last_released_key {
+                Some(val) => {
                     self.v[vx as usize] = val;
                 }
                 _ => {
@@ -282,7 +279,7 @@ impl Cpu {
                 println!("unknown instruction: 0x{instruction:4X}");
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     fn get_next_instruction(&mut self, memory: &Memory) -> Result<Instruction> {

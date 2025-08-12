@@ -1,103 +1,111 @@
 use std::{
-    sync::{
-        Arc, Mutex,
-        mpsc::{Receiver, Sender},
-    },
-    thread::JoinHandle,
+    hint::spin_loop,
+    sync::{Arc, Mutex, mpsc::TryRecvError},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
-use eframe::egui::{ColorImage, TextureHandle, TextureOptions};
-
-use crate::{Chip8, FrameBuffer, KeyMatrix, Message};
+use crate::{
+    Message, channel::Channel, chip8::Chip8, frame_buffer::FrameBuffer, key_matrix::KeyMatrix,
+};
 
 pub struct Chip8Handle {
     handle: Option<JoinHandle<()>>,
-
-    key_matrix: Arc<Mutex<KeyMatrix>>,
-    frame_buffer: Arc<Mutex<FrameBuffer>>,
-
-    sender: Option<Sender<Message>>,
-    receiver: Receiver<Message>,
+    channel: Option<Channel>,
 }
 
 impl Chip8Handle {
     pub fn new(
         key_matrix: Arc<Mutex<KeyMatrix>>,
         frame_buffer: Arc<Mutex<FrameBuffer>>,
-        channel_pair_1: (Sender<Message>, Receiver<Message>),
-        channel_pair_2: (Sender<Message>, Receiver<Message>),
+
         rom_file_path: &str,
     ) -> Self {
-        let (tx1, rx1) = channel_pair_1;
-        let (tx2, rx2) = channel_pair_2;
+        let (channel_1, channel_2) = Channel::new();
 
-        let handle = Some(Chip8::new_thread_handle(
-            frame_buffer.clone(),
-            key_matrix.clone(),
-            tx2,
-            rx1,
-            rom_file_path,
-        ));
+        let mut chip8 = Chip8::new(frame_buffer, key_matrix);
+        chip8.load_rom(rom_file_path).unwrap();
+
+        let handle = thread::spawn(move || {
+            let tick_rate = Duration::from_millis(2);
+            let tick_60hz = Duration::from_millis(17);
+
+            let mut last_update_60hz = Instant::now();
+            let mut pause_delta: Duration = Duration::ZERO;
+
+            loop {
+                match channel_1.try_recv() {
+                    Ok(Message::Shutdown) | Err(TryRecvError::Disconnected) => break,
+                    Ok(Message::Pause) => {
+                        pause_delta = Instant::now() - last_update_60hz;
+                        chip8.pause();
+                    }
+                    Ok(Message::Unpause) => {
+                        last_update_60hz = Instant::now() - pause_delta;
+                        chip8.unpause();
+                    }
+                    Ok(Message::KeyReleased(val)) => chip8.set_last_released_key_index(val),
+                    _ => {}
+                }
+
+                if !chip8.is_paused() {
+                    let now = Instant::now();
+
+                    if last_update_60hz.elapsed() >= tick_60hz {
+                        chip8.tick_60hz();
+                        last_update_60hz = Instant::now();
+                    }
+
+                    if let Ok(true) = chip8.tick() {
+                        let _ = channel_1.send(Message::Draw);
+                    }
+
+                    while now.elapsed() < tick_rate {
+                        spin_loop();
+                    }
+                }
+            }
+        });
 
         Self {
-            handle,
-            key_matrix,
-            frame_buffer,
-            sender: Some(tx1),
-            receiver: rx2,
+            handle: Some(handle),
+            channel: Some(channel_2),
         }
     }
 
-    pub fn shutdown(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            if let Some(sender) = self.sender.take() {
-                let _ = sender.send(Message::Shutdown);
+    pub fn check_draw_message(&self) -> bool {
+        if let Some(ref channel) = self.channel {
+            if let Ok(Message::Draw) = channel.try_recv() {
+                return true;
             }
+        }
+        return false;
+    }
 
+    pub fn send_key_release_message(&self, key_index: u8) {
+        if let Some(ref channel) = self.channel {
+            let _ = channel.send(Message::KeyReleased(key_index));
+        }
+    }
+
+    pub fn send_pause_message(&self) {
+        if let Some(ref channel) = self.channel {
+            let _ = channel.send(Message::Pause);
+        }
+    }
+
+    pub fn send_unpause_message(&self) {
+        if let Some(ref channel) = self.channel {
+            let _ = channel.send(Message::Unpause);
+        }
+    }
+}
+
+impl Drop for Chip8Handle {
+    fn drop(&mut self) {
+        let _ = self.channel.take();
+        if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
-        }
-    }
-
-    pub fn set_texture(&self, mut texture_handle: TextureHandle) {
-        let frame_buffer = self.frame_buffer.lock().unwrap();
-        let frame_buffer_ref = frame_buffer.get_ref();
-        let gray_iter = frame_buffer_ref
-            .iter()
-            .flat_map(|row| row.iter().map(|&v| if v { 255u8 } else { 0u8 }));
-
-        let size = [64, 32];
-        let image = ColorImage::from_gray_iter(size, gray_iter);
-
-        texture_handle.set(image, TextureOptions::NEAREST);
-    }
-
-    pub fn check_draw_message(&mut self) -> bool {
-        if let Ok(Message::Draw) = self.receiver.try_recv() {
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn press_key(&mut self, key_index: u8) {
-        self.key_matrix.lock().unwrap().press(key_index as usize);
-    }
-    pub fn release_key(&mut self, key_index: u8) {
-        self.key_matrix.lock().unwrap().release(key_index as usize);
-        if let Some(ref sender) = self.sender {
-            let _ = sender.send(Message::KeyReleased(key_index));
-        }
-    }
-
-    pub fn pause(&self) {
-        if let Some(ref sender) = self.sender {
-            let _ = sender.send(Message::Pause);
-        }
-    }
-
-    pub fn unpause(&self) {
-        if let Some(ref sender) = self.sender {
-            let _ = sender.send(Message::Unpause);
         }
     }
 }
