@@ -51,8 +51,8 @@ impl Cpu {
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
         sender: Sender<Message>,
-        receiver: &Receiver<Message>,
-    ) -> Result<Option<Message>> {
+        recv_message: Option<Message>,
+    ) -> Result<()> {
         let instruction = self.get_next_instruction(memory)?;
         self.execute(
             instruction,
@@ -60,7 +60,7 @@ impl Cpu {
             frame_buffer,
             key_matrix,
             sender,
-            receiver,
+            recv_message,
         )
     }
 
@@ -71,8 +71,8 @@ impl Cpu {
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
         sender: Sender<Message>,
-        receiver: &Receiver<Message>,
-    ) -> Result<Option<Message>> {
+        recv_message: Option<Message>,
+    ) -> Result<()> {
         match instruction {
             Instruction::Cls => {
                 {
@@ -222,17 +222,14 @@ impl Cpu {
                     self.v[0xF] = 0
                 }
             }
-            Instruction::KeyWait { vx } => {
-                let msg = receiver.recv();
-
-                match msg {
-                    Ok(Message::KeyPressed(val)) => {
-                        self.v[vx as usize] = val;
-                    }
-                    Ok(msg) => return Ok(Some(msg)),
-                    _ => {}
+            Instruction::KeyWait { vx } => match recv_message {
+                Some(Message::KeyReleased(val)) => {
+                    self.v[vx as usize] = val;
                 }
-            }
+                _ => {
+                    self.pc -= 2;
+                }
+            },
             Instruction::Store { vx } => {
                 let i = self.i;
 
@@ -285,7 +282,7 @@ impl Cpu {
                 println!("unknown instruction: 0x{instruction:4X}");
             }
         }
-        Ok(None)
+        Ok(())
     }
 
     fn get_next_instruction(&mut self, memory: &Memory) -> Result<Instruction> {

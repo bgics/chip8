@@ -33,7 +33,7 @@ pub enum Message {
     Shutdown,
     Pause,
     Unpause,
-    KeyPressed(u8),
+    KeyReleased(u8),
     NewROM(String),
     NoFileFound,
 }
@@ -87,6 +87,7 @@ impl Chip8 {
             let mut pause_delta: Duration = Duration::ZERO;
 
             loop {
+                let mut recv_message = None;
                 match chip8.receiver.try_recv() {
                     Ok(Message::Shutdown) | Err(TryRecvError::Disconnected) => break,
                     Ok(Message::Pause) => {
@@ -97,11 +98,10 @@ impl Chip8 {
                         last_update_60hz = Instant::now() - pause_delta;
                         chip8.paused = false;
                     }
+                    Ok(msg @ Message::KeyReleased(_)) => recv_message = Some(msg),
                     _ => {}
                 }
 
-                // TODO(BUG): there is some issue with pausing when the game is waiting for input
-                // to see this try rps.ch8 and open load rom picker when it is waiting for input then close the picker
                 if !chip8.paused {
                     let now = Instant::now();
 
@@ -110,14 +110,7 @@ impl Chip8 {
                         last_update_60hz = Instant::now();
                     }
 
-                    match chip8.tick() {
-                        Ok(Some(Message::Shutdown)) => break,
-                        Ok(Some(Message::Pause)) => {
-                            pause_delta = Instant::now() - last_update_60hz;
-                            chip8.paused = true;
-                        }
-                        _ => {}
-                    }
+                    let _ = chip8.tick(recv_message);
 
                     while now.elapsed() < tick_rate {
                         spin_loop();
@@ -142,13 +135,13 @@ impl Chip8 {
         self.cpu.tick_60hz();
     }
 
-    pub fn tick(&mut self) -> Result<Option<Message>> {
+    pub fn tick(&mut self, recv_message: Option<Message>) -> Result<()> {
         self.cpu.tick(
             &mut self.memory,
             self.frame_buffer.clone(),
             self.key_matrix.clone(),
             self.sender.clone(),
-            &self.receiver,
+            recv_message,
         )
     }
 }

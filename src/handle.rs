@@ -81,12 +81,12 @@ impl Chip8Handle {
 
     pub fn press_key(&mut self, key_index: u8) {
         self.key_matrix.lock().unwrap().press(key_index as usize);
-        if let Some(ref sender) = self.sender {
-            let _ = sender.send(Message::KeyPressed(key_index));
-        }
     }
     pub fn release_key(&mut self, key_index: u8) {
         self.key_matrix.lock().unwrap().release(key_index as usize);
+        if let Some(ref sender) = self.sender {
+            let _ = sender.send(Message::KeyReleased(key_index));
+        }
     }
 
     pub fn pause(&self) {
