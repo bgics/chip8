@@ -6,7 +6,8 @@ use std::{
 };
 
 use crate::{
-    Message, channel::Channel, chip8::Chip8, frame_buffer::FrameBuffer, key_matrix::KeyMatrix,
+    Message, channel::Channel, chip8::Chip8, frame_buffer::FrameBuffer, key_matrix::Chip8Key,
+    key_matrix::KeyMatrix,
 };
 
 pub struct Chip8Handle {
@@ -82,9 +83,9 @@ impl Chip8Handle {
         return false;
     }
 
-    pub fn send_key_release_message(&self, key_index: u8) {
+    pub fn send_key_release_message(&self, key: Chip8Key) {
         if let Some(ref channel) = self.channel {
-            let _ = channel.send(Message::KeyReleased(key_index));
+            let _ = channel.send(Message::KeyReleased(key));
         }
     }
 

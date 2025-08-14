@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::error::{Chip8Error, Result};
 use crate::frame_buffer::FrameBuffer;
 use crate::instruction::Instruction;
-use crate::key_matrix::KeyMatrix;
+use crate::key_matrix::{Chip8Key, KeyMatrix};
 use crate::memory::{FONT_START_ADDR, Memory, ROM_START_ADDR};
 
 pub struct Cpu {
@@ -50,7 +50,7 @@ impl Cpu {
         memory: &mut Memory,
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
-        last_released_key: Option<u8>,
+        last_released_key: Option<Chip8Key>,
     ) -> Result<bool> {
         let instruction = self.get_next_instruction(memory)?;
         self.execute(
@@ -68,7 +68,7 @@ impl Cpu {
         memory: &mut Memory,
         frame_buffer: Arc<Mutex<FrameBuffer>>,
         key_matrix: Arc<Mutex<KeyMatrix>>,
-        last_released_key: Option<u8>,
+        last_released_key: Option<Chip8Key>,
     ) -> Result<bool> {
         match instruction {
             Instruction::Cls => {
@@ -220,8 +220,8 @@ impl Cpu {
                 }
             }
             Instruction::KeyWait { vx } => match last_released_key {
-                Some(val) => {
-                    self.v[vx as usize] = val;
+                Some(key) => {
+                    self.v[vx as usize] = key.into();
                 }
                 _ => {
                     self.pc -= 2;
@@ -264,13 +264,21 @@ impl Cpu {
             }
             Instruction::Skp { vx } => {
                 let vx_val = self.v[vx as usize];
-                if key_matrix.lock().unwrap().is_pressed(vx_val as usize) {
+                if key_matrix
+                    .lock()
+                    .unwrap()
+                    .is_pressed(vx_val.try_into().unwrap())
+                {
                     self.pc += 2
                 }
             }
             Instruction::Sknp { vx } => {
                 let vx_val = self.v[vx as usize];
-                if !key_matrix.lock().unwrap().is_pressed(vx_val as usize) {
+                if !key_matrix
+                    .lock()
+                    .unwrap()
+                    .is_pressed(vx_val.try_into().unwrap())
+                {
                     self.pc += 2
                 }
             }

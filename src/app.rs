@@ -2,14 +2,15 @@ use std::sync::{Arc, Mutex};
 
 use eframe::{
     Frame,
-    egui::{self, ColorImage, Context, Key, MenuBar, TextureHandle, TextureOptions},
+    egui::{self, ColorImage, Context, MenuBar, TextureHandle, TextureOptions},
 };
 
 use crate::{
     file_picker::{FilePicker, FilePickerResult},
     frame_buffer::FrameBuffer,
     handle::Chip8Handle,
-    key_matrix::KeyMatrix,
+    key_mapping::KeyMapping,
+    key_matrix::{Chip8Key, KeyMatrix},
 };
 
 pub struct App {
@@ -21,6 +22,9 @@ pub struct App {
     handle: Option<Chip8Handle>,
 
     file_picker: FilePicker,
+    key_mapping: KeyMapping,
+
+    open_remap_window: bool,
 }
 
 impl App {
@@ -40,6 +44,8 @@ impl App {
             key_matrix,
             handle: None,
             file_picker: FilePicker::new(),
+            key_mapping: KeyMapping::new(),
+            open_remap_window: false,
         }
     }
 
@@ -72,14 +78,14 @@ impl App {
         self.texture.set(image, TextureOptions::NEAREST);
     }
 
-    fn press_key(&self, key_index: u8) {
-        self.key_matrix.lock().unwrap().press(key_index as usize);
+    fn press_key(&self, key: Chip8Key) {
+        self.key_matrix.lock().unwrap().press(key);
     }
 
-    fn release_key(&self, key_index: u8) {
-        self.key_matrix.lock().unwrap().release(key_index as usize);
+    fn release_key(&self, key: Chip8Key) {
+        self.key_matrix.lock().unwrap().release(key);
         if let Some(ref handle) = self.handle {
-            handle.send_key_release_message(key_index);
+            handle.send_key_release_message(key);
         }
     }
 
@@ -104,7 +110,7 @@ impl eframe::App for App {
                     egui::Event::Key {
                         key, pressed: true, ..
                     } => {
-                        let key_index = get_keymap_index(key);
+                        let key_index = self.key_mapping.get_chip8_key(key);
 
                         if let Some(key_index) = key_index {
                             self.press_key(key_index);
@@ -115,7 +121,7 @@ impl eframe::App for App {
                         pressed: false,
                         ..
                     } => {
-                        let key_index = get_keymap_index(key);
+                        let key_index = self.key_mapping.get_chip8_key(key);
 
                         if let Some(key_index) = key_index {
                             self.release_key(key_index);
@@ -133,6 +139,10 @@ impl eframe::App for App {
                         self.pause();
                         self.file_picker.open_file_picker();
                     }
+
+                    if ui.button("Remap Keys").clicked() {
+                        self.open_remap_window = true
+                    }
                 });
             });
         });
@@ -145,6 +155,43 @@ impl eframe::App for App {
                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
                     |ui| ui.image((self.texture.id(), egui::vec2(640.0, 320.0))),
                 )
+            });
+
+        egui::Window::new("Remap Keys")
+            .open(&mut self.open_remap_window)
+            .show(ctx, |ui| {
+                let keys = [
+                    [Chip8Key::K1, Chip8Key::K2, Chip8Key::K3, Chip8Key::KC],
+                    [Chip8Key::K4, Chip8Key::K5, Chip8Key::K6, Chip8Key::KD],
+                    [Chip8Key::K7, Chip8Key::K8, Chip8Key::K9, Chip8Key::KE],
+                    [Chip8Key::KA, Chip8Key::K0, Chip8Key::KB, Chip8Key::KF],
+                ];
+
+                egui::Grid::new("key mapping")
+                    .spacing([20.0, 20.0])
+                    .show(ui, |ui| {
+                        for row in keys {
+                            for col in row {
+                                ui.vertical(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(10.0);
+                                        ui.label(format!(
+                                            "{} => {}",
+                                            <&'static str>::from(col),
+                                            self.key_mapping.get_key(col).name()
+                                        ));
+                                        if ui.button("Edit").clicked() {
+                                            println!("Edit {}", <&'static str>::from(col));
+                                        }
+                                        ui.add_space(10.0);
+                                    });
+                                    ui.add_space(10.0);
+                                });
+                            }
+                            ui.end_row();
+                        }
+                    });
             });
 
         match self.file_picker.check_file_picker() {
@@ -166,27 +213,5 @@ impl eframe::App for App {
         }
 
         ctx.request_repaint();
-    }
-}
-
-fn get_keymap_index(key: &Key) -> Option<u8> {
-    match key {
-        Key::Num1 => Some(1),
-        Key::Num2 => Some(2),
-        Key::Num3 => Some(3),
-        Key::Num4 => Some(12),
-        Key::Q => Some(4),
-        Key::W => Some(5),
-        Key::E => Some(6),
-        Key::R => Some(13),
-        Key::A => Some(7),
-        Key::S => Some(8),
-        Key::D => Some(9),
-        Key::F => Some(14),
-        Key::Z => Some(10),
-        Key::X => Some(0),
-        Key::C => Some(11),
-        Key::V => Some(15),
-        _ => None,
     }
 }

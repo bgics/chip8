@@ -1,3 +1,5 @@
+use key_matrix::Chip8Key;
+
 pub mod app;
 pub mod channel;
 pub mod chip8;
@@ -7,6 +9,7 @@ pub mod file_picker;
 pub mod frame_buffer;
 pub mod handle;
 pub mod instruction;
+pub mod key_mapping;
 pub mod key_matrix;
 pub mod memory;
 
@@ -15,7 +18,7 @@ pub enum Message {
     Shutdown,
     Pause,
     Unpause,
-    KeyReleased(u8),
+    KeyReleased(Chip8Key),
     NewROM(String),
     NoFileFound,
 }

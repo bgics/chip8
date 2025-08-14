@@ -5,7 +5,11 @@ use std::{
 };
 
 use crate::{
-    cpu::Cpu, error::Result, frame_buffer::FrameBuffer, key_matrix::KeyMatrix, memory::Memory,
+    cpu::Cpu,
+    error::Result,
+    frame_buffer::FrameBuffer,
+    key_matrix::{Chip8Key, KeyMatrix},
+    memory::Memory,
 };
 
 pub struct Chip8 {
@@ -17,7 +21,7 @@ pub struct Chip8 {
 
     paused: bool,
 
-    last_released_key_index: Option<u8>,
+    last_released_key_index: Option<Chip8Key>,
 }
 
 impl Chip8 {
@@ -32,8 +36,8 @@ impl Chip8 {
         }
     }
 
-    pub fn set_last_released_key_index(&mut self, key_index: u8) {
-        self.last_released_key_index = Some(key_index);
+    pub fn set_last_released_key_index(&mut self, key: Chip8Key) {
+        self.last_released_key_index = Some(key);
     }
 
     pub fn load_rom(&mut self, file_name: &str) -> io::Result<()> {
