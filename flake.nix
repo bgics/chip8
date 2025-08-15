@@ -19,11 +19,13 @@
           extensions = [ "rust-analyzer" "rust-src" ];
         };
 
-        libPath = with pkgs; lib.makeLibraryPath [
-          libGL
-          libxkbcommon
-          wayland
-        ];
+        libPath =
+          if system == "x86_64-linux" then
+            with pkgs; lib.makeLibraryPath [
+              libGL
+              libxkbcommon
+              wayland
+            ] else "";
       in
       {
         devShells = {
@@ -32,9 +34,8 @@
               buildInputs = [
                 rustToolchain
               ];
-            } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
-            LD_LIBRARY_PATH = libPath;
-          };
+              LD_LIBRARY_PATH = libPath;
+            };
         };
       }
     );
