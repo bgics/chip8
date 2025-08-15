@@ -113,10 +113,12 @@ impl eframe::App for App {
                     egui::Event::Key {
                         key, pressed: true, ..
                     } => {
-                        let key_index = self.key_mapping.get_chip8_key(key);
+                        if !self.remap_state.open_main {
+                            let key = self.key_mapping.get_chip8_key(key);
 
-                        if let Some(key_index) = key_index {
-                            self.press_key(key_index);
+                            if let Some(key) = key {
+                                self.press_key(key);
+                            }
                         }
                     }
                     egui::Event::Key {
@@ -136,10 +138,10 @@ impl eframe::App for App {
                                 self.remap_state.selected_key = Some(*key);
                             }
                         } else {
-                            let key_index = self.key_mapping.get_chip8_key(key);
+                            let key = self.key_mapping.get_chip8_key(key);
 
-                            if let Some(key_index) = key_index {
-                                self.release_key(key_index);
+                            if let Some(key) = key {
+                                self.release_key(key);
                             }
                         }
                     }
