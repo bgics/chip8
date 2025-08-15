@@ -32,7 +32,7 @@
               buildInputs = [
                 rustToolchain
               ];
-            } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+            } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             LD_LIBRARY_PATH = libPath;
           };
         };
