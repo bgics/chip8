@@ -23,16 +23,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "chip8",
         native_options,
-        Box::new(|cc| {
-            let mut style = (*cc.egui_ctx.style()).clone();
-
-            if let Some(body_font_id) = style.text_styles.get_mut(&egui::TextStyle::Body) {
-                *body_font_id = egui::FontId::new(20.0, egui::FontFamily::Proportional)
-            }
-
-            cc.egui_ctx.set_style(style);
-
-            Ok(Box::new(App::new(cc)))
-        }),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
 }
