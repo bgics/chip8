@@ -256,7 +256,7 @@ impl eframe::App for App {
             "Edit key for {}",
             self.remap_state
                 .target_key
-                .map(|k| <&'static str>::from(k))
+                .map(<&'static str>::from)
                 .unwrap_or("")
         ))
         .open(&mut self.remap_state.open_selection)
@@ -268,7 +268,7 @@ impl eframe::App for App {
                     .map(|k| k.name())
                     .unwrap_or("N/A"),
             );
-            ui.label(format!("Current key => {}", key));
+            ui.label(format!("Current key => {key}"));
         });
 
         if !self.remap_state.open_main && self.remap_was_open {
