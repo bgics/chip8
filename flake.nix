@@ -27,10 +27,12 @@
       in
       {
         devShells = {
-          default = pkgs.mkShell {
-            buildInputs = [
-              rustToolchain
-            ];
+          default = pkgs.mkShell
+            {
+              buildInputs = [
+                rustToolchain
+              ];
+            } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
             LD_LIBRARY_PATH = libPath;
           };
         };
