@@ -36,15 +36,18 @@ impl KeyMapping {
         map
     }
 
+    pub fn reset_keymap(&mut self) {
+        self.map = Self::default_map();
+    }
+
     pub fn get_chip8_key(&self, key: &Key) -> Option<Chip8Key> {
         self.map.get(key).copied()
     }
 
-    pub fn get_key(&self, chip8_key: Chip8Key) -> Key {
+    pub fn get_key(&self, chip8_key: Chip8Key) -> Option<Key> {
         self.map
             .iter()
             .find_map(|(k, v)| if *v == chip8_key { Some(*k) } else { None })
-            .unwrap()
     }
 
     pub fn remap(&mut self, chip8_key: Chip8Key, key: Key) {

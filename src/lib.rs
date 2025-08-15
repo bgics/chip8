@@ -12,6 +12,7 @@ pub mod instruction;
 pub mod key_mapping;
 pub mod key_matrix;
 pub mod memory;
+pub mod remap;
 
 pub enum Message {
     Draw,

@@ -21,7 +21,7 @@ pub struct Chip8 {
 
     paused: bool,
 
-    last_released_key_index: Option<Chip8Key>,
+    last_released_key: Option<Chip8Key>,
 }
 
 impl Chip8 {
@@ -32,12 +32,12 @@ impl Chip8 {
             frame_buffer,
             key_matrix,
             paused: false,
-            last_released_key_index: None,
+            last_released_key: None,
         }
     }
 
-    pub fn set_last_released_key_index(&mut self, key: Chip8Key) {
-        self.last_released_key_index = Some(key);
+    pub fn set_last_released_key(&mut self, key: Chip8Key) {
+        self.last_released_key = Some(key);
     }
 
     pub fn load_rom(&mut self, file_name: &str) -> io::Result<()> {
@@ -60,7 +60,7 @@ impl Chip8 {
             &mut self.memory,
             self.frame_buffer.clone(),
             self.key_matrix.clone(),
-            self.last_released_key_index.take(),
+            self.last_released_key.take(),
         )
     }
 

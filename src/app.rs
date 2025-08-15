@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use eframe::{
     Frame,
-    egui::{self, ColorImage, Context, MenuBar, TextureHandle, TextureOptions},
+    egui::{self, ColorImage, Context, Key, MenuBar, TextureHandle, TextureOptions},
 };
 
 use crate::{
@@ -11,6 +11,7 @@ use crate::{
     handle::Chip8Handle,
     key_mapping::KeyMapping,
     key_matrix::{Chip8Key, KeyMatrix},
+    remap::RemapState,
 };
 
 pub struct App {
@@ -24,7 +25,8 @@ pub struct App {
     file_picker: FilePicker,
     key_mapping: KeyMapping,
 
-    open_remap_window: bool,
+    remap_state: RemapState,
+    remap_was_open: bool,
 }
 
 impl App {
@@ -45,7 +47,8 @@ impl App {
             handle: None,
             file_picker: FilePicker::new(),
             key_mapping: KeyMapping::new(),
-            open_remap_window: false,
+            remap_state: RemapState::new(),
+            remap_was_open: false,
         }
     }
 
@@ -121,16 +124,55 @@ impl eframe::App for App {
                         pressed: false,
                         ..
                     } => {
-                        let key_index = self.key_mapping.get_chip8_key(key);
+                        if self.remap_state.open_selection {
+                            if let Key::Enter = key {
+                                if let (Some(target_key), Some(selected_key)) =
+                                    (self.remap_state.target_key, self.remap_state.selected_key)
+                                {
+                                    self.key_mapping.remap(target_key, selected_key);
+                                }
+                                self.remap_state.reset_selection();
+                            } else {
+                                self.remap_state.selected_key = Some(*key);
+                            }
+                        } else {
+                            let key_index = self.key_mapping.get_chip8_key(key);
 
-                        if let Some(key_index) = key_index {
-                            self.release_key(key_index);
+                            if let Some(key_index) = key_index {
+                                self.release_key(key_index);
+                            }
                         }
                     }
                     _ => {}
                 }
             }
         });
+
+        // TODO: expolre possibility of using separate viewport for key remapping
+        // ctx.show_viewport_immediate(
+        //     egui::ViewportId::from_hash_of("remap window"),
+        //     egui::ViewportBuilder::default().with_title("Key remap"),
+        //     |ctx, _| {
+        //         egui::CentralPanel::default()
+        //             .frame(
+        //                 egui::Frame::default()
+        //                     .fill(ctx.style().visuals.window_fill())
+        //                     .inner_margin(0),
+        //             )
+        //             .show(ctx, |ui| {
+        //                 ui.allocate_ui_with_layout(
+        //                     ui.available_size(),
+        //                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
+        //                     |ui| ui.image((self.texture.id(), egui::vec2(640.0, 320.0))),
+        //                 )
+        //             });
+        //         ctx.input(|i| {
+        //             if i.viewport().close_requested() {
+        //                 println!("{:?}", i.viewport().title)
+        //             }
+        //         })
+        //     },
+        // );
 
         egui::TopBottomPanel::top("panel").show(ctx, |ui| {
             MenuBar::new().ui(ui, |ui| {
@@ -139,11 +181,21 @@ impl eframe::App for App {
                         self.pause();
                         self.file_picker.open_file_picker();
                     }
-
-                    if ui.button("Remap Keys").clicked() {
-                        self.open_remap_window = true
+                    if ui.button("Quit").clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+
+                ui.menu_button("Edit", |ui| {
+                    if ui.button("Remap Keys").clicked() {
+                        self.pause();
+                        self.remap_state.open_main = true;
+                    }
+
+                    if ui.button("Reset keymapping").clicked() {
+                        self.key_mapping.reset_keymap();
+                    }
+                })
             });
         });
 
@@ -158,9 +210,9 @@ impl eframe::App for App {
             });
 
         egui::Window::new("Remap Keys")
-            .open(&mut self.open_remap_window)
+            .open(&mut self.remap_state.open_main)
             .show(ctx, |ui| {
-                let keys = [
+                let key_layout = [
                     [Chip8Key::K1, Chip8Key::K2, Chip8Key::K3, Chip8Key::KC],
                     [Chip8Key::K4, Chip8Key::K5, Chip8Key::K6, Chip8Key::KD],
                     [Chip8Key::K7, Chip8Key::K8, Chip8Key::K9, Chip8Key::KE],
@@ -170,7 +222,7 @@ impl eframe::App for App {
                 egui::Grid::new("key mapping")
                     .spacing([20.0, 20.0])
                     .show(ui, |ui| {
-                        for row in keys {
+                        for row in key_layout {
                             for col in row {
                                 ui.vertical(|ui| {
                                     ui.add_space(10.0);
@@ -179,10 +231,14 @@ impl eframe::App for App {
                                         ui.label(format!(
                                             "{} => {}",
                                             <&'static str>::from(col),
-                                            self.key_mapping.get_key(col).name()
+                                            self.key_mapping
+                                                .get_key(col)
+                                                .map(|k| k.name())
+                                                .unwrap_or("N/A")
                                         ));
                                         if ui.button("Edit").clicked() {
-                                            println!("Edit {}", <&'static str>::from(col));
+                                            self.remap_state.open_selection = true;
+                                            self.remap_state.target_key = Some(col);
                                         }
                                         ui.add_space(10.0);
                                     });
@@ -193,6 +249,32 @@ impl eframe::App for App {
                         }
                     });
             });
+
+        egui::Window::new(format!(
+            "Edit key for {}",
+            self.remap_state
+                .target_key
+                .map(|k| <&'static str>::from(k))
+                .unwrap_or("")
+        ))
+        .open(&mut self.remap_state.open_selection)
+        .show(ctx, |ui| {
+            ui.label("Press and release the desired key, then press ENTER to confirm");
+            let key = self.remap_state.selected_key.map(|k| k.name()).unwrap_or(
+                self.key_mapping
+                    .get_key(self.remap_state.target_key.unwrap())
+                    .map(|k| k.name())
+                    .unwrap_or("N/A"),
+            );
+            ui.label(format!("Current key => {}", key));
+        });
+
+        if !self.remap_state.open_main && self.remap_was_open {
+            self.unpause();
+            self.remap_state.reset_selection();
+        }
+
+        self.remap_was_open = self.remap_state.open_main;
 
         match self.file_picker.check_file_picker() {
             Some(FilePickerResult::Path(path)) => {
@@ -211,7 +293,5 @@ impl eframe::App for App {
                 ctx.request_repaint();
             }
         }
-
-        ctx.request_repaint();
     }
 }

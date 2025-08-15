@@ -5,7 +5,7 @@ use eframe::egui;
 
 // Essential Features
 // TODO: Implement pause, loading rom, keymap config (via gui)
-// Completed -> { pause, loading ram }
+// Completed -> { pause, loading ram, keymap config (via gui) }
 
 // Non Essential Features
 // TODO: Implement load/save state, color config (via gui), kbd shortcuts, cpu speed control, output sizing options

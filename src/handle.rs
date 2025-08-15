@@ -45,7 +45,11 @@ impl Chip8Handle {
                         last_update_60hz = Instant::now() - pause_delta;
                         chip8.unpause();
                     }
-                    Ok(Message::KeyReleased(val)) => chip8.set_last_released_key_index(val),
+                    Ok(Message::KeyReleased(val)) => {
+                        if !chip8.is_paused() {
+                            chip8.set_last_released_key(val);
+                        }
+                    }
                     _ => {}
                 }
 
