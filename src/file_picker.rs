@@ -3,16 +3,22 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crate::Message;
+pub enum Config {
+    ROM,
+    Load,
+    Save,
+}
 
 pub enum FilePickerResult {
-    Path(String),
+    ROM(String),
+    Load(String),
+    Save(String),
     None,
 }
 
 pub struct FilePicker {
     handle: Option<JoinHandle<()>>,
-    receiver: Option<Receiver<Message>>,
+    receiver: Option<Receiver<FilePickerResult>>,
 }
 
 impl FilePicker {
@@ -23,18 +29,43 @@ impl FilePicker {
         }
     }
 
-    pub fn open_file_picker(&mut self) {
+    pub fn open_file_picker(&mut self, config: Config) {
         if self.handle.is_some() {
             return;
         }
 
         let (sender, receiver) = mpsc::channel();
 
-        self.handle = Some(thread::spawn(move || {
-            if let Some(path) = rfd::FileDialog::new().pick_file() {
-                let _ = sender.send(Message::NewROM(path.display().to_string()));
-            } else {
-                let _ = sender.send(Message::NoFileFound);
+        self.handle = Some(thread::spawn(move || match config {
+            Config::ROM => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("chip8", &["ch8"])
+                    .pick_file()
+                {
+                    let _ = sender.send(FilePickerResult::ROM(path.display().to_string()));
+                } else {
+                    let _ = sender.send(FilePickerResult::None);
+                }
+            }
+            Config::Load => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("sav", &["sav"])
+                    .pick_file()
+                {
+                    let _ = sender.send(FilePickerResult::Load(path.display().to_string()));
+                } else {
+                    let _ = sender.send(FilePickerResult::None);
+                }
+            }
+            Config::Save => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("sav", &["sav"])
+                    .save_file()
+                {
+                    let _ = sender.send(FilePickerResult::Save(path.display().to_string()));
+                } else {
+                    let _ = sender.send(FilePickerResult::None);
+                }
             }
         }));
 
@@ -51,13 +82,9 @@ impl FilePicker {
         let receiver = self.receiver.as_ref()?;
 
         match receiver.try_recv() {
-            Ok(Message::NewROM(path)) => {
+            Ok(result) => {
                 self.join_handle();
-                Some(FilePickerResult::Path(path))
-            }
-            Ok(Message::NoFileFound) => {
-                self.join_handle();
-                Some(FilePickerResult::None)
+                Some(result)
             }
             _ => None,
         }

@@ -6,8 +6,12 @@ use std::{
 };
 
 use crate::{
-    Message, channel::Channel, chip8::Chip8, frame_buffer::FrameBuffer, key_matrix::Chip8Key,
-    key_matrix::KeyMatrix,
+    Message,
+    channel::Channel,
+    chip8::Chip8,
+    chip8_state::Chip8State,
+    frame_buffer::FrameBuffer,
+    key_matrix::{Chip8Key, KeyMatrix},
 };
 
 pub struct Chip8Handle {
@@ -15,17 +19,30 @@ pub struct Chip8Handle {
     channel: Option<Channel>,
 }
 
+pub enum Chip8Source {
+    ROM(String),
+    SaveState(String),
+}
+
 impl Chip8Handle {
     pub fn new(
         key_matrix: Arc<Mutex<KeyMatrix>>,
         frame_buffer: Arc<Mutex<FrameBuffer>>,
 
-        rom_file_path: &str,
+        source: Chip8Source,
     ) -> Self {
         let (channel_1, channel_2) = Channel::new();
 
-        let mut chip8 = Chip8::new(frame_buffer, key_matrix);
-        chip8.load_rom(rom_file_path).unwrap();
+        let mut chip8 = match source {
+            Chip8Source::ROM(path) => {
+                let mut chip8 = Chip8::new(frame_buffer, key_matrix);
+                chip8.load_rom(&path).unwrap();
+                chip8
+            }
+            Chip8Source::SaveState(path) => {
+                Chip8::new_from_save_state(frame_buffer, key_matrix, Chip8State::load(&path))
+            }
+        };
 
         let handle = thread::spawn(move || {
             let tick_rate = Duration::from_millis(2);
@@ -38,17 +55,24 @@ impl Chip8Handle {
                 match channel_1.try_recv() {
                     Ok(Message::Shutdown) | Err(TryRecvError::Disconnected) => break,
                     Ok(Message::Pause) => {
-                        pause_delta = Instant::now() - last_update_60hz;
-                        chip8.pause();
+                        if !chip8.is_paused() {
+                            pause_delta = Instant::now() - last_update_60hz;
+                            chip8.pause();
+                        }
                     }
                     Ok(Message::Unpause) => {
-                        last_update_60hz = Instant::now() - pause_delta;
-                        chip8.unpause();
+                        if chip8.is_paused() {
+                            last_update_60hz = Instant::now() - pause_delta;
+                            chip8.unpause();
+                        }
                     }
                     Ok(Message::KeyReleased(val)) => {
                         if !chip8.is_paused() {
                             chip8.set_last_released_key(val);
                         }
+                    }
+                    Ok(Message::Save(path)) => {
+                        chip8.to_chip8_state().save(&path);
                     }
                     _ => {}
                 }
@@ -102,6 +126,12 @@ impl Chip8Handle {
     pub fn send_unpause_message(&self) {
         if let Some(ref channel) = self.channel {
             let _ = channel.send(Message::Unpause);
+        }
+    }
+
+    pub fn save(&self, path: String) {
+        if let Some(ref channel) = self.channel {
+            let _ = channel.send(Message::Save(path));
         }
     }
 }

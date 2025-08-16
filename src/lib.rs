@@ -3,6 +3,7 @@ use key_matrix::Chip8Key;
 pub mod app;
 pub mod channel;
 pub mod chip8;
+pub mod chip8_state;
 pub mod cpu;
 pub mod error;
 pub mod file_picker;
@@ -19,7 +20,6 @@ pub enum Message {
     Shutdown,
     Pause,
     Unpause,
+    Save(String),
     KeyReleased(Chip8Key),
-    NewROM(String),
-    NoFileFound,
 }

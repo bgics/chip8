@@ -6,9 +6,9 @@ use eframe::{
 };
 
 use crate::{
-    file_picker::{FilePicker, FilePickerResult},
-    frame_buffer::FrameBuffer,
-    handle::Chip8Handle,
+    file_picker::{Config, FilePicker, FilePickerResult},
+    frame_buffer::{FRAME_BUFFER_COLS, FRAME_BUFFER_ROWS, FrameBuffer},
+    handle::{Chip8Handle, Chip8Source},
     key_mapping::KeyMapping,
     key_matrix::{Chip8Key, KeyMatrix},
     remap::RemapState,
@@ -52,7 +52,7 @@ impl App {
         }
     }
 
-    fn set_new_handle(&mut self, rom_file_path: &str) {
+    fn set_new_handle(&mut self, source: Chip8Source) {
         let _ = self.handle.take();
 
         let frame_buffer = Arc::new(Mutex::new(FrameBuffer::new()));
@@ -61,7 +61,7 @@ impl App {
         self.handle = Some(Chip8Handle::new(
             key_matrix.clone(),
             frame_buffer.clone(),
-            rom_file_path,
+            source,
         ));
 
         self.frame_buffer = frame_buffer;
@@ -69,14 +69,22 @@ impl App {
     }
 
     fn set_texture(&mut self) {
-        let frame_buffer = self.frame_buffer.lock().unwrap();
-        let frame_buffer_ref = frame_buffer.get_ref();
-        let gray_iter = frame_buffer_ref
-            .iter()
-            .flat_map(|row| row.iter().map(|&v| if v { 255u8 } else { 0u8 }));
-
-        let size = [64, 32];
-        let image = ColorImage::from_gray_iter(size, gray_iter);
+        let image = {
+            let frame_buffer = self
+                .frame_buffer
+                .lock()
+                .unwrap()
+                .get_ref()
+                .map(|v| {
+                    if v {
+                        [255u8, 255u8, 0u8]
+                    } else {
+                        [128u8, 0u8, 128u8]
+                    }
+                })
+                .concat();
+            ColorImage::from_rgb([FRAME_BUFFER_COLS, FRAME_BUFFER_ROWS], &frame_buffer)
+        };
 
         self.texture.set(image, TextureOptions::NEAREST);
     }
@@ -103,6 +111,12 @@ impl App {
             handle.send_unpause_message();
         }
     }
+
+    fn save(&self, path: String) {
+        if let Some(ref handle) = self.handle {
+            handle.save(path);
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -113,12 +127,10 @@ impl eframe::App for App {
                     egui::Event::Key {
                         key, pressed: true, ..
                     } => {
-                        if !self.remap_state.open_main {
-                            let key = self.key_mapping.get_chip8_key(key);
+                        let key = self.key_mapping.get_chip8_key(key);
 
-                            if let Some(key) = key {
-                                self.press_key(key);
-                            }
+                        if let Some(key) = key {
+                            self.press_key(key);
                         }
                     }
                     egui::Event::Key {
@@ -137,12 +149,11 @@ impl eframe::App for App {
                             } else {
                                 self.remap_state.selected_key = Some(*key);
                             }
-                        } else {
-                            let key = self.key_mapping.get_chip8_key(key);
+                        }
+                        let key = self.key_mapping.get_chip8_key(key);
 
-                            if let Some(key) = key {
-                                self.release_key(key);
-                            }
+                        if let Some(key) = key {
+                            self.release_key(key);
                         }
                     }
                     _ => {}
@@ -181,7 +192,15 @@ impl eframe::App for App {
                 ui.menu_button("File", |ui| {
                     if ui.button("Load ROM").clicked() {
                         self.pause();
-                        self.file_picker.open_file_picker();
+                        self.file_picker.open_file_picker(Config::ROM);
+                    }
+                    if ui.button("Save").clicked() {
+                        self.pause();
+                        self.file_picker.open_file_picker(Config::Save);
+                    }
+                    if ui.button("Load").clicked() {
+                        self.pause();
+                        self.file_picker.open_file_picker(Config::Load);
                     }
                     if ui.button("Quit").clicked() {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -207,7 +226,10 @@ impl eframe::App for App {
                 ui.allocate_ui_with_layout(
                     ui.available_size(),
                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                    |ui| ui.image((self.texture.id(), egui::vec2(640.0, 320.0))),
+                    |ui| {
+                        let scale = 8.0;
+                        ui.image((self.texture.id(), egui::vec2(64.0 * scale, 32.0 * scale)))
+                    },
                 )
             });
 
@@ -279,8 +301,14 @@ impl eframe::App for App {
         self.remap_was_open = self.remap_state.open_main;
 
         match self.file_picker.check_file_picker() {
-            Some(FilePickerResult::Path(path)) => {
-                self.set_new_handle(&path);
+            Some(FilePickerResult::ROM(path)) => {
+                self.set_new_handle(Chip8Source::ROM(path));
+            }
+            Some(FilePickerResult::Load(path)) => {
+                self.set_new_handle(Chip8Source::SaveState(path));
+            }
+            Some(FilePickerResult::Save(path)) => {
+                App::save(self, path);
                 self.unpause();
             }
             Some(FilePickerResult::None) => {

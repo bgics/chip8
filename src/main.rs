@@ -3,12 +3,8 @@ use eframe::egui;
 
 // TODO: Make the code more robust (gracefully handle all errors)
 
-// Essential Features
-// TODO: Implement pause, loading rom, keymap config (via gui)
-// Completed -> { pause, loading ram, keymap config (via gui) }
-
 // Non Essential Features
-// TODO: Implement load/save state, color config (via gui), kbd shortcuts, cpu speed control, output sizing options
+// TODO: Implement load/save state, color config (via gui), kbd shortcuts (first define what do you mean by kbd shortcuts), cpu speed control, output sizing options
 
 // TODO: Add tests
 

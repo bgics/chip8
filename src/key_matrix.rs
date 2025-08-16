@@ -1,4 +1,6 @@
-#[derive(Clone, Copy, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Chip8Key {
     K0,
     K1,
@@ -73,6 +75,7 @@ impl TryFrom<u8> for Chip8Key {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct KeyMatrix {
     bitmask: u16,
 }
@@ -80,6 +83,10 @@ pub struct KeyMatrix {
 impl KeyMatrix {
     pub fn new() -> Self {
         Self { bitmask: 0 }
+    }
+
+    pub fn load(&mut self, key_matrix: KeyMatrix) {
+        self.bitmask = key_matrix.bitmask;
     }
 
     pub fn is_pressed(&self, key: Chip8Key) -> bool {

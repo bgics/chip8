@@ -1,11 +1,14 @@
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::{Chip8Error, Result};
 use crate::frame_buffer::FrameBuffer;
 use crate::instruction::Instruction;
 use crate::key_matrix::{Chip8Key, KeyMatrix};
 use crate::memory::{FONT_START_ADDR, Memory, ROM_START_ADDR};
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Cpu {
     v: [u8; 16],
     i: u16,

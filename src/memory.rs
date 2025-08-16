@@ -11,9 +11,14 @@ pub const ROM_START_ADDR: u16 = 0x200;
 
 pub const MEMORY_SIZE: usize = 4096;
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 use crate::error::{Chip8Error, Result};
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Memory {
+    #[serde(with = "BigArray")]
     data: [u8; MEMORY_SIZE],
 }
 

@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    chip8_state::Chip8State,
     cpu::Cpu,
     error::Result,
     frame_buffer::FrameBuffer,
@@ -33,6 +34,34 @@ impl Chip8 {
             key_matrix,
             paused: false,
             last_released_key: None,
+        }
+    }
+
+    pub fn new_from_save_state(
+        frame_buffer: Arc<Mutex<FrameBuffer>>,
+        key_matrix: Arc<Mutex<KeyMatrix>>,
+        state: Chip8State,
+    ) -> Self {
+        frame_buffer.lock().unwrap().load(state.frame_buffer);
+        key_matrix.lock().unwrap().load(state.key_matrix);
+
+        Self {
+            cpu: state.cpu,
+            memory: state.memory,
+            frame_buffer,
+            key_matrix,
+            paused: false,
+            last_released_key: state.last_released_key,
+        }
+    }
+
+    pub fn to_chip8_state(&self) -> Chip8State {
+        Chip8State {
+            cpu: self.cpu.clone(),
+            memory: self.memory.clone(),
+            frame_buffer: self.frame_buffer.lock().unwrap().clone(),
+            key_matrix: self.key_matrix.lock().unwrap().clone(),
+            last_released_key: self.last_released_key.clone(),
         }
     }
 
