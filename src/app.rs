@@ -26,9 +26,9 @@ pub struct App {
     key_mapping: KeyMapping,
 
     remap_state: RemapState,
-    remap_was_open: bool,
 }
 
+// TODO (bug): if remap is open then if we load a new game it is not paused
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let texture = cc.egui_ctx.load_texture(
@@ -48,7 +48,6 @@ impl App {
             file_picker: FilePicker::new(),
             key_mapping: KeyMapping::new(),
             remap_state: RemapState::new(),
-            remap_was_open: false,
         }
     }
 
@@ -138,18 +137,6 @@ impl eframe::App for App {
                         pressed: false,
                         ..
                     } => {
-                        if self.remap_state.open_selection {
-                            if let Key::Enter = key {
-                                if let (Some(target_key), Some(selected_key)) =
-                                    (self.remap_state.target_key, self.remap_state.selected_key)
-                                {
-                                    self.key_mapping.remap(target_key, selected_key);
-                                }
-                                self.remap_state.reset_selection();
-                            } else {
-                                self.remap_state.selected_key = Some(*key);
-                            }
-                        }
                         let key = self.key_mapping.get_chip8_key(key);
 
                         if let Some(key) = key {
@@ -160,32 +147,6 @@ impl eframe::App for App {
                 }
             }
         });
-
-        // TODO: expolre possibility of using separate viewport for key remapping
-        // ctx.show_viewport_immediate(
-        //     egui::ViewportId::from_hash_of("remap window"),
-        //     egui::ViewportBuilder::default().with_title("Key remap"),
-        //     |ctx, _| {
-        //         egui::CentralPanel::default()
-        //             .frame(
-        //                 egui::Frame::default()
-        //                     .fill(ctx.style().visuals.window_fill())
-        //                     .inner_margin(0),
-        //             )
-        //             .show(ctx, |ui| {
-        //                 ui.allocate_ui_with_layout(
-        //                     ui.available_size(),
-        //                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
-        //                     |ui| ui.image((self.texture.id(), egui::vec2(640.0, 320.0))),
-        //                 )
-        //             });
-        //         ctx.input(|i| {
-        //             if i.viewport().close_requested() {
-        //                 println!("{:?}", i.viewport().title)
-        //             }
-        //         })
-        //     },
-        // );
 
         egui::TopBottomPanel::top("panel").show(ctx, |ui| {
             MenuBar::new().ui(ui, |ui| {
@@ -221,7 +182,11 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::default().inner_margin(0))
+            .frame(
+                egui::Frame::default()
+                    .inner_margin(0)
+                    .fill(ctx.style().visuals.window_fill),
+            )
             .show(ctx, |ui| {
                 ui.allocate_ui_with_layout(
                     ui.available_size(),
@@ -233,72 +198,111 @@ impl eframe::App for App {
                 )
             });
 
-        egui::Window::new("Remap Keys")
-            .open(&mut self.remap_state.open_main)
-            .show(ctx, |ui| {
-                let key_layout = [
-                    [Chip8Key::K1, Chip8Key::K2, Chip8Key::K3, Chip8Key::KC],
-                    [Chip8Key::K4, Chip8Key::K5, Chip8Key::K6, Chip8Key::KD],
-                    [Chip8Key::K7, Chip8Key::K8, Chip8Key::K9, Chip8Key::KE],
-                    [Chip8Key::KA, Chip8Key::K0, Chip8Key::KB, Chip8Key::KF],
-                ];
-
-                egui::Grid::new("key mapping")
-                    .spacing([20.0, 20.0])
-                    .show(ui, |ui| {
-                        for row in key_layout {
-                            for col in row {
-                                ui.vertical(|ui| {
-                                    ui.add_space(10.0);
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(10.0);
-                                        ui.label(format!(
-                                            "{} => {}",
-                                            <&'static str>::from(col),
-                                            self.key_mapping
-                                                .get_key(col)
-                                                .map(|k| k.name())
-                                                .unwrap_or("N/A")
-                                        ));
-                                        if ui.button("Edit").clicked() {
-                                            self.remap_state.open_selection = true;
-                                            self.remap_state.target_key = Some(col);
+        if self.remap_state.open_selection {
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("edit key"),
+                egui::ViewportBuilder::default().with_title(format!(
+                    "Edit key for {}",
+                    self.remap_state
+                        .target_key
+                        .map(<&'static str>::from)
+                        .unwrap_or("")
+                )),
+                |ctx, _| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.label("Press and release the desired key, then press ENTER to confirm");
+                        let key = self.remap_state.selected_key.map(|k| k.name()).unwrap_or(
+                            self.key_mapping
+                                .get_key(self.remap_state.target_key.unwrap())
+                                .map(|k| k.name())
+                                .unwrap_or("N/A"),
+                        );
+                        ui.label(format!("Current key => {key}"));
+                    });
+                    ctx.input(|i| {
+                        if i.viewport().close_requested() {
+                            self.remap_state.reset_selection();
+                        }
+                        for event in &i.raw.events {
+                            match event {
+                                egui::Event::Key {
+                                    key,
+                                    pressed: false,
+                                    ..
+                                } => {
+                                    if let Key::Enter = key {
+                                        if let (Some(target_key), Some(selected_key)) = (
+                                            self.remap_state.target_key,
+                                            self.remap_state.selected_key,
+                                        ) {
+                                            self.key_mapping.remap(target_key, selected_key);
                                         }
-                                        ui.add_space(10.0);
-                                    });
-                                    ui.add_space(10.0);
-                                });
+                                        self.remap_state.reset_selection();
+                                    } else {
+                                        self.remap_state.selected_key = Some(*key);
+                                    }
+                                }
+                                _ => {}
                             }
-                            ui.end_row();
                         }
                     });
-            });
-
-        egui::Window::new(format!(
-            "Edit key for {}",
-            self.remap_state
-                .target_key
-                .map(<&'static str>::from)
-                .unwrap_or("")
-        ))
-        .open(&mut self.remap_state.open_selection)
-        .show(ctx, |ui| {
-            ui.label("Press and release the desired key, then press ENTER to confirm");
-            let key = self.remap_state.selected_key.map(|k| k.name()).unwrap_or(
-                self.key_mapping
-                    .get_key(self.remap_state.target_key.unwrap())
-                    .map(|k| k.name())
-                    .unwrap_or("N/A"),
-            );
-            ui.label(format!("Current key => {key}"));
-        });
-
-        if !self.remap_state.open_main && self.remap_was_open {
-            self.unpause();
-            self.remap_state.reset_selection();
+                },
+            )
         }
 
-        self.remap_was_open = self.remap_state.open_main;
+        if self.remap_state.open_main {
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("remap window"),
+                egui::ViewportBuilder::default().with_title("Key Remap"),
+                |ctx, _vi| {
+                    let key_layout = [
+                        [Chip8Key::K1, Chip8Key::K2, Chip8Key::K3, Chip8Key::KC],
+                        [Chip8Key::K4, Chip8Key::K5, Chip8Key::K6, Chip8Key::KD],
+                        [Chip8Key::K7, Chip8Key::K8, Chip8Key::K9, Chip8Key::KE],
+                        [Chip8Key::KA, Chip8Key::K0, Chip8Key::KB, Chip8Key::KF],
+                    ];
+
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::Grid::new("key mapping")
+                            .spacing([20.0, 20.0])
+                            .show(ui, |ui| {
+                                for row in key_layout {
+                                    for col in row {
+                                        ui.vertical(|ui| {
+                                            ui.add_space(10.0);
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(10.0);
+                                                ui.label(format!(
+                                                    "{} => {}",
+                                                    <&'static str>::from(col),
+                                                    self.key_mapping
+                                                        .get_key(col)
+                                                        .map(|k| k.name())
+                                                        .unwrap_or("N/A")
+                                                ));
+                                                if ui.button("Edit").clicked() {
+                                                    self.remap_state.open_selection = true;
+                                                    self.remap_state.target_key = Some(col);
+                                                }
+                                                ui.add_space(10.0);
+                                            });
+                                            ui.add_space(10.0);
+                                        });
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                    ctx.input(|i| {
+                        if i.viewport().close_requested() {
+                            self.unpause();
+                            self.remap_state.reset_selection();
+                            self.remap_state.open_main = false;
+                        }
+                    });
+                },
+            );
+        }
 
         match self.file_picker.check_file_picker() {
             Some(FilePickerResult::ROM(path)) => {
