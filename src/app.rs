@@ -196,21 +196,21 @@ impl eframe::App for App {
         if self.remap_state.open_selection {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("edit key"),
-                egui::ViewportBuilder::default().with_title(format!(
-                    "Edit key for {}",
-                    self.remap_state
-                        .target_key
-                        .map(<&'static str>::from)
-                        .unwrap_or("")
-                ))
-                .with_inner_size([300.0, 100.0])
-                .with_min_inner_size([300.0, 100.0])
-                .with_max_inner_size([300.0, 100.0])
-                .with_resizable(false)
-                ,
+                egui::ViewportBuilder::default()
+                    .with_title(format!(
+                        "Edit key for {}",
+                        self.remap_state
+                            .target_key
+                            .map(<&'static str>::from)
+                            .unwrap_or("")
+                    ))
+                    .with_inner_size([300.0, 90.0])
+                    // .with_min_inner_size([300.0, 90.0])
+                    // .with_max_inner_size([300.0, 90.0])
+                    .with_resizable(false)
+                    .with_always_on_top(),
                 |ctx, _| {
-                    egui::CentralPanel::default()
-                        .show(ctx, |ui| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
                         let key = self.remap_state.selected_key.map(|k| k.name()).unwrap_or(
                             self.key_mapping
                                 .get_key(self.remap_state.target_key.unwrap())
@@ -218,42 +218,36 @@ impl eframe::App for App {
                                 .unwrap_or("N/A"),
                         );
 
-                        ui.allocate_ui_with_layout(
-                            ui.available_size(),
-                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                            |ui| {
-                                ui.vertical_centered(|ui| {
-                                    ui.label("Press and release the desired key, then press ENTER to confirm");
-                                    ui.add_space(10.0);
-                                    ui.label(format!("Current key => {key}"));
-                                });
-                            },
-                        );
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(5.0);
+                            ui.label(
+                                "Press and release the desired key, then press ENTER to confirm",
+                            );
+                            ui.add_space(10.0);
+                            ui.label(format!("Current key => {key}"));
+                        })
                     });
                     ctx.input(|i| {
                         if i.viewport().close_requested() {
                             self.remap_state.reset_selection();
                         }
                         for event in &i.raw.events {
-                            match event {
-                                egui::Event::Key {
-                                    key,
-                                    pressed: false,
-                                    ..
-                                } => {
-                                    if let Key::Enter = key {
-                                        if let (Some(target_key), Some(selected_key)) = (
-                                            self.remap_state.target_key,
-                                            self.remap_state.selected_key,
-                                        ) {
-                                            self.key_mapping.remap(target_key, selected_key);
-                                        }
-                                        self.remap_state.reset_selection();
-                                    } else {
-                                        self.remap_state.selected_key = Some(*key);
+                            if let egui::Event::Key {
+                                key,
+                                pressed: false,
+                                ..
+                            } = event
+                            {
+                                if let Key::Enter = key {
+                                    if let (Some(target_key), Some(selected_key)) =
+                                        (self.remap_state.target_key, self.remap_state.selected_key)
+                                    {
+                                        self.key_mapping.remap(target_key, selected_key);
                                     }
+                                    self.remap_state.reset_selection();
+                                } else {
+                                    self.remap_state.selected_key = Some(*key);
                                 }
-                                _ => {}
                             }
                         }
                     });
@@ -264,7 +258,13 @@ impl eframe::App for App {
         if self.remap_state.open_main {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("remap window"),
-                egui::ViewportBuilder::default().with_title("Key Remap"),
+                egui::ViewportBuilder::default()
+                    .with_title("Key Remap")
+                    .with_inner_size([500.0, 260.0])
+                    // .with_min_inner_size([500.0, 260.0])
+                    // .with_max_inner_size([500.0, 260.0])
+                    .with_resizable(false)
+                    .with_always_on_top(),
                 |ctx, _vi| {
                     let key_layout = [
                         [Chip8Key::K1, Chip8Key::K2, Chip8Key::K3, Chip8Key::KC],
@@ -274,6 +274,7 @@ impl eframe::App for App {
                     ];
 
                     egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.add_space(10.0);
                         egui::Grid::new("key mapping")
                             .spacing([20.0, 20.0])
                             .show(ui, |ui| {
@@ -302,7 +303,7 @@ impl eframe::App for App {
                                     }
                                     ui.end_row();
                                 }
-                            });
+                            })
                     });
                     ctx.input(|i| {
                         if i.viewport().close_requested() {
