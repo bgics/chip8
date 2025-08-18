@@ -4,7 +4,7 @@ use eframe::egui;
 // TODO: Make the code more robust (gracefully handle all errors)
 
 // Non Essential Features
-// TODO: Implement load/save state, color config (via gui), kbd shortcuts (first define what do you mean by kbd shortcuts), cpu speed control, output sizing options
+// TODO: Implement color config (via gui), kbd shortcuts (first define what do you mean by kbd shortcuts), cpu speed control, output sizing options
 
 // TODO: Add tests
 

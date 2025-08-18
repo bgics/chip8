@@ -28,7 +28,6 @@ pub struct App {
     remap_state: RemapState,
 }
 
-// TODO (bug): if remap is open then if we load a new game it is not paused
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let texture = cc.egui_ctx.load_texture(
@@ -182,20 +181,16 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::default()
-                    .inner_margin(0)
-                    .fill(ctx.style().visuals.window_fill),
-            )
+            .frame(egui::Frame::default().fill(ctx.style().visuals.window_fill))
             .show(ctx, |ui| {
                 ui.allocate_ui_with_layout(
                     ui.available_size(),
                     egui::Layout::centered_and_justified(egui::Direction::TopDown),
                     |ui| {
-                        let scale = 8.0;
-                        ui.image((self.texture.id(), egui::vec2(64.0 * scale, 32.0 * scale)))
+                        let scale = 12.0;
+                        ui.image((self.texture.id(), egui::vec2(64.0 * scale, 32.0 * scale)));
                     },
-                )
+                );
             });
 
         if self.remap_state.open_selection {
@@ -207,17 +202,33 @@ impl eframe::App for App {
                         .target_key
                         .map(<&'static str>::from)
                         .unwrap_or("")
-                )),
+                ))
+                .with_inner_size([300.0, 100.0])
+                .with_min_inner_size([300.0, 100.0])
+                .with_max_inner_size([300.0, 100.0])
+                .with_resizable(false)
+                ,
                 |ctx, _| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        ui.label("Press and release the desired key, then press ENTER to confirm");
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| {
                         let key = self.remap_state.selected_key.map(|k| k.name()).unwrap_or(
                             self.key_mapping
                                 .get_key(self.remap_state.target_key.unwrap())
                                 .map(|k| k.name())
                                 .unwrap_or("N/A"),
                         );
-                        ui.label(format!("Current key => {key}"));
+
+                        ui.allocate_ui_with_layout(
+                            ui.available_size(),
+                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                            |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.label("Press and release the desired key, then press ENTER to confirm");
+                                    ui.add_space(10.0);
+                                    ui.label(format!("Current key => {key}"));
+                                });
+                            },
+                        );
                     });
                     ctx.input(|i| {
                         if i.viewport().close_requested() {
@@ -307,9 +318,13 @@ impl eframe::App for App {
         match self.file_picker.check_file_picker() {
             Some(FilePickerResult::ROM(path)) => {
                 self.set_new_handle(Chip8Source::ROM(path));
+                self.remap_state.reset_selection();
+                self.remap_state.open_main = false;
             }
             Some(FilePickerResult::Load(path)) => {
                 self.set_new_handle(Chip8Source::SaveState(path));
+                self.remap_state.reset_selection();
+                self.remap_state.open_main = false;
             }
             Some(FilePickerResult::Save(path)) => {
                 App::save(self, path);
