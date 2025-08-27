@@ -101,3 +101,9 @@ impl KeyMatrix {
         self.bitmask &= !(1 << u8::from(key));
     }
 }
+
+impl Default for KeyMatrix {
+    fn default() -> Self {
+        Self::new()
+    }
+}

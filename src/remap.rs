@@ -25,3 +25,9 @@ impl RemapState {
         self.selected_key = None;
     }
 }
+
+impl Default for RemapState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

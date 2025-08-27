@@ -61,7 +61,7 @@ impl Chip8 {
             memory: self.memory.clone(),
             frame_buffer: self.frame_buffer.lock().unwrap().clone(),
             key_matrix: self.key_matrix.lock().unwrap().clone(),
-            last_released_key: self.last_released_key.clone(),
+            last_released_key: self.last_released_key,
         }
     }
 

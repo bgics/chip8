@@ -26,6 +26,8 @@ pub struct App {
     key_mapping: KeyMapping,
 
     remap_state: RemapState,
+    open_color_config: bool,
+    color_config: [[u8; 3]; 2],
 }
 
 impl App {
@@ -47,6 +49,8 @@ impl App {
             file_picker: FilePicker::new(),
             key_mapping: KeyMapping::new(),
             remap_state: RemapState::new(),
+            open_color_config: false,
+            color_config: [[0u8, 0u8, 0u8], [255u8, 255u8, 255u8]],
         }
     }
 
@@ -75,9 +79,9 @@ impl App {
                 .get_ref()
                 .map(|v| {
                     if v {
-                        [255u8, 255u8, 0u8]
+                        self.color_config[1]
                     } else {
-                        [128u8, 0u8, 128u8]
+                        self.color_config[0]
                     }
                 })
                 .concat();
@@ -154,11 +158,11 @@ impl eframe::App for App {
                         self.pause();
                         self.file_picker.open_file_picker(Config::ROM);
                     }
-                    if ui.button("Save").clicked() {
+                    if ui.button("Save State").clicked() {
                         self.pause();
                         self.file_picker.open_file_picker(Config::Save);
                     }
-                    if ui.button("Load").clicked() {
+                    if ui.button("Load State").clicked() {
                         self.pause();
                         self.file_picker.open_file_picker(Config::Load);
                     }
@@ -175,6 +179,13 @@ impl eframe::App for App {
 
                     if ui.button("Reset keymapping").clicked() {
                         self.key_mapping.reset_keymap();
+                    }
+                });
+
+                ui.menu_button("Config", |ui| {
+                    if ui.button("Color Config").clicked() {
+                        self.pause();
+                        self.open_color_config = true;
                     }
                 })
             });
@@ -193,6 +204,60 @@ impl eframe::App for App {
                 );
             });
 
+        if self.open_color_config {
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of("color config"),
+                egui::ViewportBuilder::default()
+                    .with_title("Color Config")
+                    .with_inner_size([220.0, 70.0])
+                    .with_resizable(false)
+                    .with_always_on_top(),
+                |ctx, _| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("OFF Color");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.color_config[0][0])
+                                        .range(0..=255),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut self.color_config[0][1])
+                                        .range(0..=255),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut self.color_config[0][2])
+                                        .range(0..=255),
+                                );
+                            });
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                ui.label("ON Color ");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.color_config[1][0])
+                                        .range(0..=255),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut self.color_config[1][1])
+                                        .range(0..=255),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut self.color_config[1][2])
+                                        .range(0..=255),
+                                );
+                            });
+                        })
+                    });
+                    ctx.input(|i| {
+                        if i.viewport().close_requested() {
+                            self.unpause();
+                            self.open_color_config = false;
+                        }
+                    })
+                },
+            );
+        }
+
         if self.remap_state.open_selection {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("edit key"),
@@ -205,8 +270,6 @@ impl eframe::App for App {
                             .unwrap_or("")
                     ))
                     .with_inner_size([300.0, 90.0])
-                    // .with_min_inner_size([300.0, 90.0])
-                    // .with_max_inner_size([300.0, 90.0])
                     .with_resizable(false)
                     .with_always_on_top(),
                 |ctx, _| {
@@ -261,8 +324,6 @@ impl eframe::App for App {
                 egui::ViewportBuilder::default()
                     .with_title("Key Remap")
                     .with_inner_size([500.0, 260.0])
-                    // .with_min_inner_size([500.0, 260.0])
-                    // .with_max_inner_size([500.0, 260.0])
                     .with_resizable(false)
                     .with_always_on_top(),
                 |ctx, _vi| {
@@ -321,11 +382,13 @@ impl eframe::App for App {
                 self.set_new_handle(Chip8Source::ROM(path));
                 self.remap_state.reset_selection();
                 self.remap_state.open_main = false;
+                self.open_color_config = false;
             }
             Some(FilePickerResult::Load(path)) => {
                 self.set_new_handle(Chip8Source::SaveState(path));
                 self.remap_state.reset_selection();
                 self.remap_state.open_main = false;
+                self.open_color_config = false;
             }
             Some(FilePickerResult::Save(path)) => {
                 App::save(self, path);

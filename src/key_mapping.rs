@@ -62,3 +62,9 @@ impl KeyMapping {
         self.map.insert(key, chip8_key);
     }
 }
+
+impl Default for KeyMapping {
+    fn default() -> Self {
+        Self::new()
+    }
+}

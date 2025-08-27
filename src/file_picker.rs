@@ -91,6 +91,12 @@ impl FilePicker {
     }
 }
 
+impl Default for FilePicker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for FilePicker {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {

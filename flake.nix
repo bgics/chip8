@@ -15,10 +15,7 @@
           inherit system overlays;
         };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-analyzer" "rust-src" ];
-        };
-
+        rustToolchain = pkgs.rust-bin.stable.latest.default;
         libPath =
           if system == "x86_64-linux" then
             with pkgs; lib.makeLibraryPath [

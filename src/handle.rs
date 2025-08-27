@@ -86,7 +86,7 @@ impl Chip8Handle {
                     }
 
                     if let Ok(true) = chip8.tick() {
-                        let _ = channel_1.send(Message::Draw);
+                        channel_1.send(Message::Draw);
                     }
 
                     while now.elapsed() < tick_rate {
@@ -108,30 +108,30 @@ impl Chip8Handle {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn send_key_release_message(&self, key: Chip8Key) {
         if let Some(ref channel) = self.channel {
-            let _ = channel.send(Message::KeyReleased(key));
+            channel.send(Message::KeyReleased(key));
         }
     }
 
     pub fn send_pause_message(&self) {
         if let Some(ref channel) = self.channel {
-            let _ = channel.send(Message::Pause);
+            channel.send(Message::Pause);
         }
     }
 
     pub fn send_unpause_message(&self) {
         if let Some(ref channel) = self.channel {
-            let _ = channel.send(Message::Unpause);
+            channel.send(Message::Unpause);
         }
     }
 
     pub fn save(&self, path: String) {
         if let Some(ref channel) = self.channel {
-            let _ = channel.send(Message::Save(path));
+            channel.send(Message::Save(path));
         }
     }
 }
