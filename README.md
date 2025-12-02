@@ -92,17 +92,7 @@ CHIP-8 Keypad    →    Keyboard
 
 ## Getting Started
 
-### Building
-
-Clone the repository and build with Cargo:
-
-```bash
-git clone https://github.com/bgics/chip8.git
-cd chip8
-cargo build
-```
-
-### Running
+Make sure you have the Rust toolchain installed, then run:
 
 ```bash
 cargo run
