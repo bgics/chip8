@@ -94,10 +94,6 @@ CHIP-8 Keypad    →    Keyboard
 
 ## Getting Started
 
-### Prerequisites
-
-- [Rust](https://www.rust-lang.org/tools/install) (edition 2024)
-
 ### Building
 
 Clone the repository and build with Cargo:
@@ -105,20 +101,20 @@ Clone the repository and build with Cargo:
 ```bash
 git clone https://github.com/bgics/chip8.git
 cd chip8
-cargo build --release
+cargo build
 ```
 
 ### Running
 
 ```bash
-cargo run --release
+cargo run
 ```
 
 ## Usage
 
 ### Loading ROMs
 
-1. Launch the emulator with `cargo run --release`
+1. Launch the emulator with `cargo run`
 2. Go to **File → Load ROM**
 3. Select a `.ch8` ROM file
 
@@ -183,66 +179,6 @@ chip8/
 └── README.md            # This file
 ```
 
-### Module Overview
-
-| Module | Description |
-|--------|-------------|
-| `cpu` | Implements the CHIP-8 CPU with 16 8-bit registers (V0-VF), I register, program counter, stack, and timers. Handles instruction fetch/decode/execute cycle. |
-| `memory` | Provides 4KB of addressable memory. Loads built-in font sprites (0-F) at address 0x050 and ROMs at address 0x200. |
-| `frame_buffer` | Manages the 64×32 monochrome display. Implements XOR drawing and collision detection. |
-| `key_matrix` | Tracks the state of all 16 CHIP-8 keys using a 16-bit bitmask. |
-| `instruction` | Decodes 2-byte opcodes into typed instruction variants for clean pattern matching. |
-| `chip8` | Orchestrates CPU, memory, display, and input. Manages the main tick loop and ROM loading. |
-| `handle` | Runs the emulator in a separate thread with proper timing (500Hz CPU, 60Hz timers). |
-| `app` | egui-based GUI with menu bar, display rendering, and configuration dialogs. |
-
-## Technical Details
-
-### Memory Layout
-
-```
-0x000-0x04F: Reserved (interpreter)
-0x050-0x09F: Built-in font sprites (0-F)
-0x0A0-0x1FF: Reserved
-0x200-0xFFF: Program/ROM space (3,584 bytes)
-```
-
-### Execution Timing
-
-- **CPU Clock**: ~500Hz (2ms per instruction)
-- **Timer Clock**: 60Hz (16.67ms)
-- Timers (DT, ST) decrement at 60Hz independent of CPU speed
-
-### Opcode Decoding
-
-Opcodes are 2 bytes (big-endian). The first nibble determines the instruction category:
-
-```rust
-let opcode = (msb << 8) | lsb;  // Combine bytes
-match opcode >> 12 {           // First nibble
-    0x0 => /* CLS, RET */
-    0x1 => /* JP */
-    0x2 => /* CALL */
-    // ...
-}
-```
-
-### Display Behavior
-
-- Sprites are XORed onto the display
-- VF is set to 1 if any pixel is turned OFF (collision)
-- Sprite coordinates wrap modulo 64 (x) and 32 (y)
-- Drawing is clipped at screen edges
-
-### Quirks Implemented
-
-This emulator uses modern/CHIP-48 behavior for ambiguous instructions:
-
-| Quirk | Behavior |
-|-------|----------|
-| `8xy6` / `8xyE` (Shift) | Shifts Vx directly (not Vy into Vx) |
-| `Fx55` / `Fx65` (Load/Store) | I is not modified after execution |
-
 ## Roadmap / TODO
 
 - [ ] Audio support (beep when sound timer > 0)
@@ -252,8 +188,6 @@ This emulator uses modern/CHIP-48 behavior for ambiguous instructions:
 - [ ] Debugger with step-through execution
 - [ ] Disassembler view
 - [ ] Comprehensive test coverage
-- [ ] Command-line ROM loading
-- [ ] Persistent configuration storage
 
 ## Dependencies
 
@@ -265,7 +199,31 @@ This emulator uses modern/CHIP-48 behavior for ambiguous instructions:
 
 ## License
 
-*License information to be added.*
+This project is licensed under the MIT License - see below for details.
+
+```
+MIT License
+
+Copyright (c) 2024
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## Acknowledgments
 
