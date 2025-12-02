@@ -8,9 +8,7 @@ CHIP-8 is an interpreted programming language developed in the mid-1970s for the
 
 ### Why This Project?
 
-- Learn about emulator development and low-level programming
-- Preserve and run classic CHIP-8 games and programs
-- Provide a reference implementation for CHIP-8 enthusiasts
+- Learn about emulator development and Rust
 
 ## Features
 
