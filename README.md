@@ -171,9 +171,6 @@ chip8/
 
 - [ ] Audio support (beep when sound timer > 0)
 - [ ] CPU speed control (adjustable clock rate)
-- [ ] SUPER-CHIP (SCHIP) instruction support
-- [ ] XO-CHIP extension support
-- [ ] Debugger with step-through execution
 - [ ] Disassembler view
 - [ ] Comprehensive test coverage
 
