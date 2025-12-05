@@ -88,7 +88,9 @@ CHIP-8 Keypad    →    Keyboard
 
 ## Demo / Screenshots
 
-*Screenshots coming soon.*
+![CHIP-8 Emulator Screenshot 1](demo/image1.png)
+
+![CHIP-8 Emulator Screenshot 2](demo/image2.png)
 
 ## Getting Started
 
